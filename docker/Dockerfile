@@ -19,9 +19,11 @@ RUN apt update -y || true && \
 
 # install dependencies
 
+RUN apt install ffmpeg libsm6 libxext6 -y
+
 RUN pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu124 && \
-    pip install numpy scipy termcolor easydict ipdb tqdm scikit-learn imageio matplotlib tensorboard torchmetrics==0.9.3 && \
-    pip install prefetch_generator colored-traceback torch-ema gdown==4.6.0 clean-fid==0.1.35 rich lmdb wandb blobfile
+    pip install numpy scipy opencv-python termcolor easydict ipdb tqdm scikit-learn imageio matplotlib tensorboard torchmetrics==0.9.3 && \
+    pip install prefetch_generator colored-traceback torch-ema gdown==4.6.0 clean-fid==0.1.35 rich lmdb wandb blobfile ml_collections
 
 # install git and clone i2sb repository via https
 

@@ -83,7 +83,7 @@ def create_training_options():
     parser.add_argument(
         "--json-data-config", 
         type=Path, 
-        default="/home/I2SB/dataset/config/openfwi_dataset_config.json", 
+        default="/home/seismic_inversion_via_I2SB/dataset/config/openfwi_dataset_config.json", 
         help="full path to JSON config for openfwi datasets"
     )
 

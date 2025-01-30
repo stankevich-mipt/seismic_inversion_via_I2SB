@@ -118,7 +118,7 @@ def _build_lmdb_dataset(opt, root, ctx, log):
 
     if os.path.isfile(pt_path) and os.path.isdir(lmdb_path):
         log.info('[Dataset] Loading pt {} and lmdb {}'.format(pt_path, lmdb_path))
-        data_set = torch.load(pt_path)
+        data_set = torch.load(pt_path, weights_only=False)
     
     else:
 
