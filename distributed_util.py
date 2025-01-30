@@ -13,18 +13,21 @@ import torch
 import torch.distributed as dist
 from torch.multiprocessing import Process
 
+
 def init_processes(rank, size, fn, args):
     """ Initialize the distributed environment. """
     os.environ['MASTER_ADDR'] = args.master_address
-    os.environ['MASTER_PORT'] = '6020'
+    os.environ['MASTER_PORT'] = str(args.master_port)
     torch.cuda.set_device(args.local_rank)
     dist.init_process_group(backend='nccl', init_method='env://', rank=rank, world_size=size)
     fn(args)
     dist.barrier()
     cleanup()
 
+
 def cleanup():
     dist.destroy_process_group()
+
 
 def average_grads(params):
     size = float(dist.get_world_size())
@@ -35,6 +38,7 @@ def average_grads(params):
                 dist.all_reduce(param.grad.data, op=dist.ReduceOp.SUM)
                 param.grad.data /= size
 
+
 def average_params(params):
     size = float(dist.get_world_size())
     for param in params:
@@ -43,6 +47,7 @@ def average_params(params):
             dist.all_reduce(param.data, op=dist.ReduceOp.SUM)
             param.data /= size
 
+
 def sync_params(params):
     """
     Synchronize a sequence of Tensors across ranks from rank 0.
@@ -50,6 +55,7 @@ def sync_params(params):
     for p in params:
         with torch.no_grad():
             dist.broadcast(p, 0)
+
 
 def all_gather(tensor, log=None):
     if log: log.info("Gathering tensor across {} devices... ".format(dist.get_world_size()))

@@ -55,6 +55,7 @@ class LogTransform(object):
     def __call__(self, data):
         return log_transform(data, k=self.k, c=self.c)
 
+
 class MinMaxNormalize(object):
     def __init__(self, datamin, datamax, scale=2):
         self.datamin = datamin
@@ -155,7 +156,6 @@ def _build_lmdb_dataset(opt, root, ctx, log):
             data = np.transpose(data, (2, 0, 1))
 
             model = resize(model[0], (image_size, image_size))[None, ...]
-            
             
             # use concatenation of file paths as a hash for lmdb entry
             data_path, model_path = data_set.local_files[i]
