@@ -1,22 +1,61 @@
 # ---------------------------------------------------------------
+# Copyright (c) 2023, NVIDIA CORPORATION. All rights reserved.
 #
-# This file has been modified from I2SB repository.
+# This file has been modified from ddrm.
 #
 # Source:
-# https://github.com/NVlabs/I2SB/blob/master/corruption/blur.py
+# https://github.com/bahjat-kawar/ddrm/blob/master/functions/svd_replacement.py#L397
+# https://github.com/bahjat-kawar/ddrm/blob/master/runners/diffusion.py#L245
+# https://github.com/bahjat-kawar/ddrm/blob/master/runners/diffusion.py#L251
 #
+# The license for the original version of this file can be
+# found in this directory (LICENSE_DDRM).
 # The modifications to this file are subject to the same license.
 # ---------------------------------------------------------------
 
-
-import torch
 import numpy as np
-
+import torch
 from .base import H_functions
 from scipy.ndimage import gaussian_filter
 
 
+class GaussMixtureBlur():
+    
+    def __init__(
+        self, 
+        gauss_kernel_floor=8, 
+        gauss_kernel_ceil=24, 
+        noise_mixin_floor=0., 
+        noise_mixin_ceil=0.3
+    ):
+        
+        self.gauss_kernel_floor = gauss_kernel_floor
+        self.gauss_kernel_ceil  = gauss_kernel_ceil
+        self.noise_mixin_floor  = noise_mixin_floor
+        self.noise_mixin_ceil   = noise_mixin_ceil
+    
+    def __call__(self, img):
+
+        assert len(img.shape) == 4
+
+        np_img = img.clone().detach().cpu().numpy()
+        
+        gauss_kernel_size = np.random.randint(self.gauss_kernel_floor, self.gauss_kernel_ceil+1)
+        gauss_kernel = list([0, 0 , gauss_kernel_size, gauss_kernel_size])
+
+        noise_mixin_level = self.noise_mixin_floor + self.noise_mixin_ceil * np.random.rand()
+
+        np_img = np.random.normal(0., 1., np_img.shape) * noise_mixin_level + np_img * (1. - noise_mixin_level)
+        np_img = gaussian_filter(np_img, gauss_kernel)
+        np_img = np.clip(np_img, -1., 1.)
+
+        img = torch.tensor(np_img).to(dtype=img.dtype, device=img.device)
+
+        return img
+
+
 class Deblurring(H_functions):
+
     def mat_by_img(self, M, v):
         return torch.matmul(M, v.reshape(v.shape[0] * self.channels, self.img_dim,
                         self.img_dim)).reshape(v.shape[0], self.channels, M.shape[0], self.img_dim)
@@ -85,43 +124,23 @@ class Deblurring(H_functions):
     def add_zeros(self, vec):
         return vec.clone().reshape(vec.shape[0], -1)
 
-
-class GaussMixtureBlur():
-    
-    def __init__(self, gauss_kernel_size=16, noise_mixin_level=0.1):
-        
-        self.gauss_kernel = list([0, 0 , gauss_kernel_size, gauss_kernel_size])
-        self.noise_mixin_level = noise_mixin_level
-    
-    def __call__(self, img):
-
-        assert len(img.shape) == 4
-
-        np_img = img.clone().detach().cpu().numpy()
-
-        np_img = np.random.normal(0., 1., np_img.shape) * self.noise_mixin_level + np_img * (1. - self.noise_mixin_level)
-        np_img = gaussian_filter(np_img, self.gauss_kernel)
-
-        img = torch.tensor(np_img).to(dtype=img.dtype, device=img.device)
-
-        return img
-
-
 def build_blur(opt, log, kernel):
-    
+
     log.info(f"[Corrupt] Bluring {kernel=}...")
 
-    uni = Deblurring(torch.Tensor([1/9] * 9).to(opt.device), 3, opt.image_size, opt.device)
+    uni = Deblurring(torch.Tensor([1/9] * 9).to(opt.device), 1, opt.image_size, opt.device)
 
     sigma = 10
     pdf = lambda x: torch.exp(torch.Tensor([-0.5 * (x/sigma)**2]))
     g_kernel = torch.Tensor([pdf(-2), pdf(-1), pdf(0), pdf(1), pdf(2)]).to(opt.device)
-    gauss = Deblurring(g_kernel / g_kernel.sum(), 3, opt.image_size, opt.device)  
-    gauss_mixture = GaussMixtureBlur()
+    gauss = Deblurring(g_kernel / g_kernel.sum(), 3, opt.image_size, opt.device)
+    
+    openfwi_blur = GaussMixtureBlur()
 
-    xdim = (3, opt.image_size, opt.image_size)
+    xdim = (1, opt.image_size, opt.image_size)
 
-    assert kernel in ["uni", "gauss", "gauss_mixture"]
+    assert kernel in ["uni", "gauss", "openfwi_custom"]
+    
     def blur(img):
         # img: [-1,1] -> [0,1]
         img = (img + 1) / 2
@@ -129,8 +148,8 @@ def build_blur(opt, log, kernel):
             img = uni.H(img).reshape(img.shape[0], *xdim)
         elif kernel == "gauss":
             img = gauss.H(img).reshape(img.shape[0], *xdim)
-        elif kernel == "gauss_mixture": 
-            img = gauss_mixture(img)
+        elif kernel == "openfwi_custom":
+            img = openfwi_blur(img)
         # [0,1] -> [-1,1]
         return img * 2 - 1
 

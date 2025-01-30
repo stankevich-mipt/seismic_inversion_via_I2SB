@@ -32,7 +32,7 @@ def build_corruption(opt, log, corrupt_type=None):
     elif 'blur' in corrupt_type:
         from .blur import build_blur
         kernel = corrupt_type.split("-")[1]
-        assert kernel in ["uni", "gauss"]
+        assert kernel in ["uni", "gauss", "openfwi_custom"]
         method = build_blur(opt, log, kernel)
 
     elif 'mixture' in corrupt_type:
