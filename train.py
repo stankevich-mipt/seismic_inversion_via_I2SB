@@ -50,7 +50,7 @@ def create_training_options():
     parser.add_argument("--num-proc-node",  type=int,   default=1,           help="The number of nodes in multi node env")
 
     # --------------- SB model ---------------
-    parser.add_argument("--model",          type=str,   default="unet_ch64", help="model architecture")
+    parser.add_argument("--model",          type=str,   default="unet_ch32", help="model architecture")
     parser.add_argument("--image-size",     type=int,   default=256)
     parser.add_argument("--corrupt",        type=str,   default=None,        help="restoration task")
     parser.add_argument("--val-batches",    type=int,   default=100)
