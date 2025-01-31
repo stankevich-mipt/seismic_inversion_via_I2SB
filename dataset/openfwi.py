@@ -20,6 +20,8 @@ _DATASET_KV_MAP = {
     "FlatFault_B": "flatfault-b",
     "CurveFault_A": "curvefault-a",
     "CurveFault_B": "curvefault-b",
+    "Style_A": "style-a",
+    "Style_B": "style-b"
 }
 
 _WRITE_FREQUENCY = 200
