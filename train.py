@@ -58,6 +58,7 @@ def create_training_options():
     parser.add_argument("--T",              type=float, default=1.,          help="sigma end time in network parametrization")
     parser.add_argument("--interval",       type=int,   default=1000,        help="number of interval")
     parser.add_argument("--beta-max",       type=float, default=0.3,         help="max diffusion for the diffusion model")
+    parser.add_argument("--drop_cond",      type=float, default=0.25,        help="probability to replace conditional input with zero-valued tensor")
     parser.add_argument("--pred_x0",        action="store_true",             help="predict x0 instead of scaled noise")       
     parser.add_argument("--ot-ode",         action="store_true",             help="use OT-ODE model")
     parser.add_argument("--clip-denoise",   action="store_true",             help="clamp predicted image to [-1,1] at each")
