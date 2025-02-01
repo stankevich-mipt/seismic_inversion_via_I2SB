@@ -121,21 +121,26 @@ class Runner(object):
         if clip_denoise: pred_x0.clamp_(-1., 1.)
         return pred_x0
 
-    def process_batch(self, opt, batch, corrupt_method):
+    def process_batch(self, opt, batch, corrupt_method, augment=False):
         
-        clean_img, y = batch
+        clean_img, cond = batch
         with torch.no_grad():
             corrupt_img = corrupt_method(clean_img.to(opt.device))
 
-        y  = y.detach().to(opt.device)
         x0 = clean_img.detach().to(opt.device)
         x1 = corrupt_img.detach().to(opt.device)
+
+        cond = cond.detach().to(opt.device)
+        
+        if augment:
+            # occasionally replace conditional input with zeros
+            cond = cond * (torch.rand(cond.shape[0], 1, 1, 1) < (1. - opt.drop_cond)).type(cond.dtype).to(cond.device)
     
         assert x0.shape == x1.shape
-        return x0, x1, y
+        return x0, x1, cond
 
-    def sample_batch(self, opt, loader, corrupt_method): 
-        return self.process_batch(opt, next(loader), corrupt_method)
+    def sample_batch(self, opt, loader, corrupt_method, augment=False): 
+        return self.process_batch(opt, next(loader), corrupt_method, augment=augment)
 
     def train(self, opt, train_dataset, val_dataset, corrupt_method):
         
@@ -156,13 +161,14 @@ class Runner(object):
 
             for _ in range(n_inner_loop):
                 # ===== sample boundary pair =====
-                x0, x1, cond = self.sample_batch(opt, train_loader, corrupt_method)
+                x0, x1, cond = self.sample_batch(opt, train_loader, corrupt_method, augment=True)
 
                 # ===== compute loss =====
                 step = torch.randint(0, opt.interval, (x0.shape[0],))
 
                 xt = self.diffusion.q_sample(step, x0, x1, ot_ode=opt.ot_ode)
                 label = self.compute_label(step, x0, xt, pred_x0=opt.pred_x0)
+
 
                 pred = net(xt, step, cond=cond)
                 assert xt.shape == label.shape == pred.shape
@@ -263,7 +269,7 @@ class Runner(object):
         log = self.log
         log.info(f"========== Evaluation started: iter={it} ==========")
 
-        img_clean, img_corrupt, cond = self.sample_batch(opt, val_loader, corrupt_method)
+        img_clean, img_corrupt, cond = self.sample_batch(opt, val_loader, corrupt_method, augment=False)
 
         x1 = img_corrupt.to(opt.device)
 
