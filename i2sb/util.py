@@ -60,7 +60,7 @@ class TensorBoardWriter(BaseWriter):
     def __init__(self, opt):
         super(TensorBoardWriter,self).__init__(opt)
         if self.rank == 0:
-            run_dir = str(opt.log_dir / opt.name)
+            run_dir = str(opt.log_dir)
             os.makedirs(run_dir, exist_ok=True)
             self.writer=SummaryWriter(log_dir=run_dir, flush_secs=20)
 
