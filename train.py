@@ -104,7 +104,7 @@ def create_training_options():
 
     RESULT_DIR = opt.result_dir
     
-    opt.ckpt_path = RESULT_DIR / opt.name / "results"
+    opt.ckpt_path = RESULT_DIR / opt.name / "checkpoints"
     opt.log_dir   = RESULT_DIR / opt.name / "logs"
 
     os.makedirs(opt.log_dir, exist_ok=True)
