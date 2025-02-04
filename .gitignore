@@ -1,6 +1,9 @@
 # Generation results
 results/
 
+# Temporary assets
+assets/tmp/
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *__pycache__/
