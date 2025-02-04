@@ -68,6 +68,34 @@ def all_cat_cpu(opt, log, t):
     return torch.cat(gathered_t).detach().cpu()
 
 
+def drop_shots_and_traces(data, p_drop_shots=0.5, p_drop_traces=0.5):
+    
+    drop_shots = (torch.rand(data.shape[0], data.shape[1], 1, 1) < p_drop_shots).type(torch.bool)
+    # pick the item guaranteed to stay 
+    nonzero_id_shots = torch.randint(data.shape[1], size=(data.shape[0],))
+    drop_shots[
+        torch.arange(data.shape[0]), 
+        nonzero_id_shots, 
+        torch.zeros(data.shape[0]).int(),
+        torch.zeros(data.shape[0]).int()
+    ] = torch.full((data.shape[0],), False)
+
+    drop_traces = (torch.rand(data.shape[0], data.shape[1], 1, data.shape[3]) < p_drop_traces).type(torch.bool)
+    # pick the item guaranteed to stay
+    ids_batch, ids_shot = torch.meshgrid(torch.arange(data.shape[0]), torch.arange(data.shape[1]), indexing="ij")
+    nonzero_id_traces = torch.randint(data.shape[3], size=(data.shape[0], data.shape[1]))
+    drop_traces[
+        ids_batch.flatten(), 
+        ids_shot.flatten(),
+        torch.zeros(data.shape[0] * data.shape[1]).int(), 
+        nonzero_id_traces.flatten()
+    ] = torch.full((data.shape[0] * data.shape[1],), False)
+
+    data_mask = (1. - drop_shots.type(data.dtype)) * (1. - drop_traces.type(data.dtype))
+
+    return data * data_mask.to(data.device)
+
+
 class Runner(object):
     
     def __init__(self, opt, log, save_opt=True):
@@ -135,6 +163,8 @@ class Runner(object):
         if augment:
             # occasionally replace conditional input with zeros
             cond = cond * (torch.rand(cond.shape[0], 1, 1, 1) < (1. - opt.drop_cond)).type(cond.dtype).to(cond.device)
+            # remove some shots and traces from remaining data
+            cond = drop_shots_and_traces(cond)
     
         assert x0.shape == x1.shape
         return x0, x1, cond
