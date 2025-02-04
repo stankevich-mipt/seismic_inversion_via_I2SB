@@ -215,6 +215,7 @@ if __name__ == '__main__':
     parser.add_argument("--partition",      type=str,  default=None,        help="e.g., '0_4' means the first 25% of the dataset")
 
     # sample
+    parser.add_argument("--corrupt",        type=str,  default=None,        help="restoration task")
     parser.add_argument("--batch-size",     type=int,  default=32)
     parser.add_argument("--ckpt",           type=str,  default="latest.pt", help="the checkpoint name from which we wish to sample")
     parser.add_argument("--nfe",            type=int,  default=None,        help="sampling steps")

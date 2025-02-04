@@ -124,33 +124,43 @@ class Deblurring(H_functions):
     def add_zeros(self, vec):
         return vec.clone().reshape(vec.shape[0], -1)
 
+
+def _blur_factory(opt, kernel):
+
+    xdim = (1, opt.image_size, opt.image_size)
+
+    if kernel == "uni":    
+        uni = Deblurring(torch.Tensor([1/9] * 9).to(opt.device), 1, opt.image_size, opt.device)
+        blur = lambda img: uni.H(img).reshape(img.shape[0], *xdim)
+    elif kernel == "gauss":
+        sigma = 10
+        pdf = lambda x: torch.exp(torch.Tensor([-0.5 * (x/sigma)**2]))
+        g_kernel = torch.Tensor([pdf(-2), pdf(-1), pdf(0), pdf(1), pdf(2)]).to(opt.device)
+        gauss = Deblurring(g_kernel / g_kernel.sum(), 3, opt.image_size, opt.device)
+        blur = lambda img: gauss.H(img).reshape(img.shape[0], *xdim)
+    elif kernel == "openfwi_custom":
+        openfwi_blur = GaussMixtureBlur()
+        blur = lambda img: openfwi_blur(img)
+    elif kernel == "openfwi_benchmark":
+        # blur parameters from https://arxiv.org/pdf/2410.21776
+        openfwi_blur = GaussMixtureBlur(gauss_kernel_floor=9, gauss_kernel_ceil=9, noise_mixin_floor=0., noise_mixin_ceil=0.)
+        blur = lambda img: openfwi_blur(img)
+    else:
+        raise NotImplementedError
+           
+    return blur
+
+
 def build_blur(opt, log, kernel):
 
     log.info(f"[Corrupt] Bluring {kernel=}...")
 
-    uni = Deblurring(torch.Tensor([1/9] * 9).to(opt.device), 1, opt.image_size, opt.device)
-
-    sigma = 10
-    pdf = lambda x: torch.exp(torch.Tensor([-0.5 * (x/sigma)**2]))
-    g_kernel = torch.Tensor([pdf(-2), pdf(-1), pdf(0), pdf(1), pdf(2)]).to(opt.device)
-    gauss = Deblurring(g_kernel / g_kernel.sum(), 3, opt.image_size, opt.device)
+    blurring_func = _blur_factory(opt, kernel)
     
-    openfwi_blur = GaussMixtureBlur()
-
-    xdim = (1, opt.image_size, opt.image_size)
-
-    assert kernel in ["uni", "gauss", "openfwi_custom"]
-    
-    def blur(img):
-        # img: [-1,1] -> [0,1]
-        img = (img + 1) / 2
-        if kernel == "uni":
-            img = uni.H(img).reshape(img.shape[0], *xdim)
-        elif kernel == "gauss":
-            img = gauss.H(img).reshape(img.shape[0], *xdim)
-        elif kernel == "openfwi_custom":
-            img = openfwi_blur(img)
-        # [0,1] -> [-1,1]
-        return img * 2 - 1
+    def blur(img):   
+        img = (img + 1) / 2 # [-1,1] -> [0,1]
+        img = blurring_func(img)
+        img = img * 2 - 1 # [0,1] -> [-1,1]
+        return img
 
     return blur
