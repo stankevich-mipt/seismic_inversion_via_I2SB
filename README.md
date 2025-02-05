@@ -1,134 +1,136 @@
-<h1 align="center"> <img src="assets/favicon.ico" height="25"/> I<sup>2</sup>SB: Image-to-Image Schrödinger Bridge <img src="assets/favicon.ico" height="25"/> </h1>
-<div align="center">
-  <a href="https://ghliu.github.io/" target="_blank">Guan-Horng&nbsp;Liu</a><sup>1</sup> &ensp; <b>&middot;</b> &ensp;
-  <a href="http://latentspace.cc/arash_vahdat/" target="_blank">Arash&nbsp;Vahdat</a><sup>2</sup> &ensp; <b>&middot;</b> &ensp;
-  <a href="https://ai.stanford.edu/~dahuang/" target="_blank">De-An&nbsp;Huang</a><sup>2</sup> &ensp; <b>&middot;</b> &ensp;
-  <a href="https://sites.gatech.edu/acds/people/" target="_blank">Evangelos&nbsp;A.&nbsp;Theodorou</a><sup>1</sup>
-  <br>
-  <a href="https://weilinie.github.io/" target="_blank">Weili&nbsp;Nie</a><sup>2,</sup>† &ensp; <b>&middot;</b> &ensp;
-  <a href="http://tensorlab.cms.caltech.edu/users/anima/" target="_blank">Anima&nbsp;Anandkumar</a><sup>2,3,</sup>† <br>
-  <sup>1</sup>Georgia Tech &emsp; <sup>2</sup>NVIDIA Corporation &emsp; <sup>3</sup>Caltech &emsp; †equal advising <br>
-</div>
-<h3 align="center">[<a href="https://i2sb.github.io/">project page</a>] [<a href="https://arxiv.org/abs/2302.05872">arXiv</a>]</h3>
+<h1 align="center"> Acoustic Waveform Inversion based on Image-to-Image Schrödinger Bridges </h1>
 
-Official PyTorch implementation of **I<sup>2</sup>SB**, a new class of conditional diffusion models that directly construct diffusion bridges between two given distributions. **I<sup>2</sup>SB** yields interpretable generation, enjoys better sampling efficiency, and sets new records on many image restoration tasks.
 
-<div align="center">
-    <img src="assets/diagram.png" height="260"><img src="assets/inpaint.gif" height="210"><img src="assets/jpeg5.gif" height="210">
-</div>
+A PyTorch-base implementation of acousic FWI pipeline based on Image-to-Image Schrödinger Bridges. 
 
-## General image-to-Image translation
+## Setup
 
-In additinoal to image restoration tasks, **I<sup>2</sup>SB** can also be applied to general image-to-image translation such as [pix2pix](https://github.com/phillipi/pix2pix). For more general tasks, we recommand adding the flag `--cond-x1` to the [training options](https://github.com/NVlabs/I2SB#training) to overcome the large information loss in the new priors.
-Visualization of the generation processes of **I<sup>2</sup>SB** are shown below.
+The only available option right now is the deployment based on Docker image with support of nvidia-docker
 
-<div align="center">
-    <img src="assets/pix2pix.png" width="820">
-</div>
+### Prerequisites  
 
-## Installation
+1. Install Docker following the platform-specific instructions [https://docs.docker.com/engine/installation/](https://docs.docker.com/engine/installation/)
+2. Install Nvidia drivers on your machine either from [Nvidia](http://www.nvidia.com/Download/index.aspx?lang=en-us) directly or follow the instructions [here](https://github.com/saiprashanths/dl-setup#nvidia-drivers). Note that you _don't_ have to install CUDA or cuDNN. These are included in the Docker container.
+3. Install nvidia-docker replacement for the docker CLI: [https://github.com/NVIDIA/nvidia-docker](https://github.com/NVIDIA/nvidia-docker), following the instructions [here](https://github.com/NVIDIA/nvidia-docker/wiki/Installation).
 
-This code is developed with Python3, and we recommend PyTorch >=1.11. Install the dependencies with [Anaconda](https://www.anaconda.com/products/individual) and activate the environment `i2sb` with
+### Obtaining the Docker image
+To build the image locally clone the repository and execute the following comand
 ```bash
-conda env create --file requirements.yaml python=3
-conda activate i2sb
+cd docker
+docker build -t stankevich-mipt/seismic_inversion_via_i2sb:latest -f Dockerfile .
 ```
 
-## Download pre-trained checkpoints
-
-All checkpoints are trained with 2 nodes, each with 8 32GB V100 GPUs. Pre-trained checkpoints and can be downloaded from [here](https://drive.google.com/drive/folders/1sgHF2FjgsAiV7doBeeOiBD8NyQhKutsG) or via
-```bash
-bash scripts/download_checkpoint.sh $NAME
-```
-where `NAME` can be one of the following image restoration tasks
-- `jpeg-5`: JPEG restoration with quality factor 5
-- `jpeg-10`: JPEG restoration with quality factor 10
-- `sr4x-pool`: 4x Super-resolution with pooling filter
-- `sr4x-bicubic`: 4x Super-resolution with bicubic filter
-- `blur-uni`: Deblurring with uniform kernel
-- `blur-gauss`: Deblurring with Gaussian kernel
-- `inpaint-center`: Inpainting with 128x128 center mask
-- `inpaint-freeform1020`: Inpainting with 10-20% freeform mask
-- `inpaint-freeform2030`: Inpainting with 20-30% freeform mask
-
-Checkpoints will be stored in `results/$NAME`. After downloaded, you can run the [sampling](https://github.com/NVlabs/I2SB#sampling) and [evaluation](https://github.com/NVlabs/I2SB#evaluation) with the provided command lines.
-
-
-## Sampling
-
-To sample from some checkpoint `$NAME` saved under `results/$NAME`, run
+## Running Docker containers 
+The image built yields all the necessary dependencies to run the code in the repository. To run experiments, one should create a container using the current image. 
 
 ```bash
-python sample.py --ckpt $NAME --n-gpu-per-node $N_GPU \
-    --dataset-dir $DATA_DIR --batch-size $BATCH --use-fp16 \
-    [--nfe $NFE] [--clip-denoise]
+docker run -d --gpus=all -p 'host_port':'container_port' -v 'host_data_volume':'container_data_volume' -v 'host_output_volume':'container_output_volume' --name 'container_name' stankevich-mipt/seismic_inversion_via_i2sb:latest
 ```
-where `N_GPU` is the number of GPUs on the node and `DATA_DIR` is the path to the LMDB dataset. By default, we use `--use-fp16` for faster sampling. The number of function evaluations (`NFE`) determines sampling steps and, if unspecified, is set as in training. In practice, **I<sup>2</sup>SB** is insensitive to `--clip-denoise`, which clamps the predicted clean images to [-1,1] at each sampling step.
 
-The reconstruction images will be saved under `results/$NAME/samples_nfe$NFE/`. By default, we use the full validation set for 4x super-resolution tasks and the [10k subset suggested by Palette](https://bit.ly/eval-pix2pix) for the rest of the restoration tasks.
+| Parameter      | Explanation |
+|----------------|-------------|
+|`-d`             | Launches the container in detached mode |
+|`-p 'host_port':'container-post`    | Exposes the ports inside the container so they can be accessed from the host. The default iPython Notebook runs on port 8888 and Tensorboard on 6006|
+|`-v 'host_data_volume':'container_data_volume'` | Attaches the volume `host_data_volume` on your host machine to `container_data_volume` inside your container. Any data written to the folder by the container is persistent. Multiple volumes can be assigned to a single container by the means of passing another `-v` flag|
+|`--name 'container_name'`| Specifies the name of newly created container |
+|`stankevich-mipt/seismic_inversion_via_i2sb:latest` | The image that is used to create a container. SHA-256 hash could be specified instead of image name and tag|
 
-(Optional) To parallelize the sampling across multiple nodes, add `--partition 0_4` so that the dataset is  partitioned into 4 subsets (indices 0,1,2,3) and only run the first partition, _i.e._ index 0. Similarly, `--partition 1_4` run the second partition, and so on.
-
-## Evaluation
-
-To evaluate the reconstruction images saved under `results/$NAME/$SAMPLE_DIR/`, run
+To attach to a running container with interactive terminal, use
 ```bash
-python compute_metrices.py --ckpt $NAME --dataset-dir $DATA_DIR --sample-dir $SAMPLE_DIR
+docker exec -it 'container-id' bash 
 ```
-to compute the accuracy on ResNet-50 and FID. The FID computation is based on [`clean-fid`](https://github.com/GaParmar/clean-fid) package with `mode="legacy_pytorch"`.
+where `container-id` should be replaced either with the name or the SHA256 ID of the given container.  
 
-Regarding the FID reference statistics, we follow Palette and ΠGDM and use the full training set for 4x super-resolution tasks and the full validation set for the rest of the restoration tasks. The statistics of training set will be automatically downloaded from [ADM](https://github.com/openai/guided-diffusion/tree/main/evaluations), and the statistics of validation set will be computed and saved to `data/fid_imagenet_256_val.npz` at first call.
+## Data
+
+We train and evaluate our models on [OpenFWI](https://smileunc.github.io/projects/openfwi) dataset collection. The file `dataset/config/openfwi_dataset_config.json`, borrowed from the [OpenFWI repo](https://github.com/lanl/OpenFWI), contains metadata, nesessary for preprocessing. 
 
 
-## Data and results
+LMDB database conversion is kept as a feature inherited from the [original **I<sup>2</sup>SB** project](https://github.com/NVlabs/I2SB) and utilized to cache static data preprocessing steps (e.g, normalization and reshaping). For LMDB conversion script to work correctly, the dataset folder has to have following file structure 
 
-We train and evaluate **I<sup>2</sup>SB** on ImageNet 256x256 with the LMDB format; hence, you may need to [convert the image folder to LMDB](https://github.com/Lyken17/Efficient-PyTorch/tree/master/tools). Use the flag `--dataset-dir $DATA_DIR` to specify the dataset directory. **Images should be normalized to [-1,1].** External data (_e.g._, ADM checkpoints, FID ref statistics) will be automatically downloaded and stored in `data/` at first call. All training and sampling results will be stored in `results`. The overall file structures are:
+```bash
+$DATA_DIR/                  # dataset directory
+├── train/
+    ├── model/              # folder with training velocity models as .npy files   
+        └── model*.npy                
+    └── data/               # folder with training seismograms as .npy files
+        └── data*.npy       
+└── val
+    ├── model/              # folder with validation velocity models as .npy files 
+        └── model*.npy      
+    └── data/               # folder with validation seismograms as .npy files
+        └── data*.npy       
+```
+LMDB database is built on the first call of the script. Tensors in database are normalized, reduced to the same shape, and stored as **pickled python dictionaries**. Concatenations of absolute paths to samples serve as sample retrieval keys. The former are saved separately in pickled dataset class instance. 
+
+The expected `$DATA_DIR` structure with LMDB cache is as follows  
 ```bash
 $DATA_DIR/                           # dataset directory
-├── train_faster_imagefolder.lmdb    # train images in LMDB format
-├── train_faster_imagefolder.lmdb.pt # train ImageFolder with (path,label) list
-├── val_faster_imagefolder.lmdb      # val images in LMDB format
-└── val_faster_imagefolder.lmdb.pt   # val ImageFolder with (path,label) list
-
-data/                        # auto-downloaded files:
-└── ...                      # ADM checkpoints, FID ref stats, freeform masks, etc.
-
-results/
-├── $NAME/                   # experiment ID set in train.py --name $NAME
-│   ├── latest.pt            # latest checkpoint: network, ema, optimizer
-│   └── options.pkl          # full training options
-│   └── samples_nfe$NFE/     # images reconstructed from sample.py --nfe $NFE
-│       └── recon.pt
-├── ...
+├──  train/
+    ├── model/
+    ├── data/
+    ├── database.lmdb                # normalized training samples in LMDB format                           
+    └── database.lmdb.pt             # pickled training dataset instance 
+├── val
+    ├── model/ 
+    ├── data/
+    ├── database.lmdb                # normalized val samples in LMDB format                   
+    └── database.lmdb.pt             # pickled val dataset instance
 ```
-
 
 ## Training
 
-To train an **I<sup>2</sup>SB** on a single node, run
+To train a baseline model instance on a single node with minimal customization, execute the following command line in terminal attached to the running Docker container
 ```bash
-python train.py --name $NAME --n-gpu-per-node $N_GPU \
-    --corrupt $CORRUPT --dataset-dir $DATA_DIR \
-    --batch-size $BATCH --microbatch $MICRO_BATCH [--ot-ode] \
-    --beta-max $BMAX --log-dir $LOG_DIR [--log-writer $LOGGER]
+python /home/seismic_inversion_via_I2SB/train.py --result-dir 'container_output_volume' --dataset-dir 'container_data_volume' --dataset-name $DATASET_NAME --name $EXP_NAME
 ```
-where `NAME` is the experiment ID (default: `CORRUPT`), `N_GPU` is the number of GPUs on each node, `DATA_DIR` is the path to the LMDB dataset, `BMAX` determines the noise scheduling. The default training on 32GB V100 GPU uses `BATCH=256` and `MICRO_BATCH=2`. If your GPUs have less than 32GB, consider lowering `MICRO_BATCH` or using samller network. `CORRUPT` can be one of the following restoration tasks:
-- JPEG restoration: quality factor 5 or 10 (`jpeg-5`,`jpeg-10`)
-- 4x Super-resolution: pool or bicubic filter (`sr4x-pool`,`sr4x-bicubic`)
-- deblurring: uniform or Gaussian kernel  (`blur-uni`, `blur-gauss`)
-- 128x128 center-masked inpainting (`inpaint-center`)
-- freeform inpainting: masked ratio 10-20% or 20-30% (`inpaint-freeform1020`,`inpaint-freeform2030`)
+### All launch options
 
-Add `--ot-ode` for optionally training an OT-ODE model, _i.e.,_ the limit when the diffusion vanishes. By defualt, the model is discretized into 1000 steps; you can change it by adding `--interval $INTERVAL`.
-Note that we initialize the network with [ADM](https://github.com/openai/guided-diffusion) ([256x256_diffusion_uncond.pt](https://openaipublic.blob.core.windows.net/diffusion/jul-2021/256x256_diffusion_uncond.pt)), which will be automatically downloaded to `data/` at first call.
+#### General 
+| Parameter      | Explanation |
+|----------------|-------------|
+|`--result-dir`  | (Required, Path) Directory for output files. Specify the directory attached to container as persistent volume `container_output_volume` to save results at host |
+|`--dataset-dir` | (Required, Path) Directory containing OpenFWI dataset in the format listed above. Specify the directory attached to container as persistent volume `container_output_volume` to get the data from host and save LMDB cache at the same volume |
+|`--dataset-name` | (Required, Path) OpenFWI dataset name required to fetch metadata for preprocessing. Possible values  <ul> <li> FlatVel_A </li> <li> FlatVel_B </li> <li> CurveVel_A </li> <li> CurveVel_B </li> <li> FlatFault_A </li> <li> FlatFault_B </li> <li> CurveFault_A </li> <li> CurveFault_B </li> <li> Style_A </li> <li> Style_B </li> </ul> |
+|`--name` | (Optional, srt, default=str(seed)) Experiment ID|
+|`--seed` | (Optional, int, default=0) Random Seed|
+|`--master-port`| (Optional, int, default=6020) Master port for process group initialized with torch.DDP module. Specify this if multiple script instances have to be launched within the same container |
+|`--ckpt` |(Optional, Path, default=None) Relative path to checkpoint weights within the output directory. If specified, training will resume from the checkpoint|
+|`--gpu`  |(Optional, int, default=None) Specify to run on a particular device|
 
-Images and losses can be logged with either tensorboard (`LOGGER="tensorboard"`) or W&B (`LOGGER="wandb"`) in the directory `LOG_DIR`. To [autonamtically login W&B](https://docs.wandb.ai/quickstart#set-up-wb), specify additionally the flags `--wandb-api-key $WANDB_API_KEY --wandb-user $WANDB_USER` where `WANDB_API_KEY` is the unique API key (about 40 characters) of your account and `WANDB_USER` is your user name.
+#### Model-related
+| Parameter      | Explanation |
+|----------------|-------------|
+|`--model`|(Optional, str, default="unet_ch32") Model architecture. Possible values <ul>  <li> "unet_ch32" </li> <li> "unet_ch64" </li> </ul>|
+|`--image-size`|(Optional, int, default=256) Height and width of model inputs and outputs. Data samples are resized once at the stage of lmdb database creation|
+|`--corrupt`|(Optional, str, default="blur-openfwi_custom") Restoration task. Possible values <ul>  <li> "blur-openfwi_custom" - gaussian smoothing with variable kernel size combined with the addition of zero-centered normal noise </li> <li> "blur-openfwi_benchmark" - gaussian smoothing with kernel_size=9 (ref. https://arxiv.org/pdf/2410.21776)  </li> </ul>|
+|`--val-batches`|(Optional, int, default=100) Upper bound for the amount of batches to run validation on|
+|`--t0`|(Optional, float, default=0.0001) Initial time in network parameterization|
+|`--T` |(Optional, float, default=1.)   Final time in network parameterization  |
+|`--interval`|(Optional, type=int, default=1000) Maximum amount of discrete timesteps to divide the time interval into|
+|`--beta-max`|(Optional, type=float, default=0.3) Square root of the standard noise deviation at the end of time interval during DDPM sampling|
+|`--drop_cond`|(Optional, type=float, default=0.25) Probability to replace conditional input with zero-valued tensor. Inspired by https://arxiv.org/pdf/2207.12598|
+|`--pred-x0`|(Optional) If set, replaces the original objective with the one described in https://arxiv.org/pdf/2206.00364|
+|`--ot-ode`|(Optional) If set, uses the ODE model instead of SDE one, _i.e.,_ the limit when the diffusion vanishes.  Hence, sampling becomes deterministic|
+|`--clip-denoise`| (Optional) If set, clip predicted image to [-1, 1] value range at each sampling iteration|
 
-To resume previous training from the checkpoint, add the flag `--ckpt $CKPT`.
+#### Optimization-related
+| Parameter      | Explanation |
+|----------------|-------------|
+|`--batch-size`| (Optional, type=int, default=256)|
+|`--microbatch`| (Optional, type=int, default=2) Accumulate gradient over batch shards, processing only `microbatch` samples at a time. Useful for memory conservation when total batch size does not fit the GPU memory|
+|`--num-itr`|(Optional, type=int, default=1000000) Total amount of batches to process during training run|
+|`--lr`|(Optional, type=float, default=5e-5) Initial learning rate for AdamW optimizer|
+|`--lr-gamma`|(Optional, type=float, default=0.99) Learning rate decay ratio|
+|`--clip_grad_norm`|(Optional, type=float, default=None) Clip gradient value to a set value. Stabilizes the training procedure, making it more resilient to large-scale gradients caused by outliers in data|
+|`--ema`|(Optional, type=float, default=0.99) Exponential moving average rate for network parameters through time. Instance of EMA parameters is saved independenty in parralel with the runtime checkpoint.|
 
-See [`scripts/train.sh`](https://github.com/NVlabs/I2SB/blob/master/scripts/train.sh) for the hyper-parameters of each restoration task.
+#### Metadata and Logging
 
-
+| Parameter      | Explanation |
+|----------------|-------------|
+|`--log-writer`|(Optional, type=str, default=None) Specify the logger backend. At the moment only tensorbard logging is supported|
+|`--json-data-config`| (Optional, type=Path) Full path to JSON config for OpenFWI. Used for data normalization. Default path is `/home/seismic_inversion_via_I2SB/dataset/config/`|
 
 
 ## Multi-Node Training
