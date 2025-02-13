@@ -1,7 +1,12 @@
 <h1 align="center"> Acoustic Waveform Inversion based on Image-to-Image Schrödinger Bridges </h1>
 
 
-A PyTorch-base implementation of acousic FWI pipeline based on Image-to-Image Schrödinger Bridges. 
+A PyTorch-base implementation of acousic FWI pipeline based on Image-to-Image Schrödinger Bridges.
+
+## Description
+
+![image](assets\single_image_to_degraded_distribution.png "Degradation Distibution")
+
 
 ## Setup
 
@@ -78,6 +83,48 @@ $DATA_DIR/                           # dataset directory
     └── database.lmdb.pt             # pickled val dataset instance
 ```
 
+## Evaluation and sampling
+To estimate performance metrics proposed in https://arxiv.org/pdf/2111.02926 for the `$EXPERIMENT` run given the output folder `$RESULT_DIR`, use
+```bash
+python /home/seismic_inversion_via_I2SB/evaluation/record_openfwi_metrics.py --name $EXPERIMENT_NAME --result-dir $RESULT_DIR
+```
+By default dataset file paths and metadata are loaded from `checkpoints/options.pkl`. Thus, evaluation is run on the val split of the dataset used for training. Such behaviour could be customized with providing different `--dataset-name` and `--dataset-dir` options. 
+
+In addition, metrics are estimated with `ot-ode` model, i.e., at the limit when diffusion vanishes. This is done in order to provide reproducibility and determinism during sampling. Nevertheless, results are slightly varied depending on a random seed, as the initial guess is built with application of gaussian noise. 
+
+Finally, compared to the `compute_metrices.py` script provided in the original repo, `record_openfwi_metrics.py` does not utilize external .pt files with pre-sampled batches of data. 
+
+To save several sample batches from `$EXPERIMENT` run given the output folder `$RESULT_DIR`, enter the following command
+```bash
+python /home/seismic_inversion_via_I2SB/sample.py --name $EXPERIMENT_NAME --result-dir $RESULT_DIR
+```
+After the execution is finished, `$RESULT_DIR/$EXPERIMENT_NAME/samples` will contain batches with model inputs and corresponding outputs saved as .pt files.
+
+### All launch options
+
+`sample.py` and `record_openfwi_metrics.py` share the same set of launch options provided below
+
+### General 
+| Parameter      | Explanation |
+|----------------|-------------|
+|`--result-dir`  | (Required, Path) Directory for output files generated with training script. |
+|`--name`        | (Required, str) Experiment ID. Model checkpoints are fetched from 'result-dir/name'|
+|`--corrupt`     | (Optional, str, default="blur_openfwi-custom") Image restoration task. Values supported at the moment are <ul> <li> "blur_openfwi-custom" </li> <li> "blur_openfwi-benchmark" </li> </ul>|
+|`--dataset-dir` | (optional, Path, default=None) Directory containing OpenFWI dataset. If not provided directly, this argument will be loaded from saved training options. |
+|`--dataset-name` | (optional, Path, default=None) OpenFWI dataset name required to fetch metadata for preprocessing. If not provided directly, this argument will be loaded from saved training options. Possible values  <ul> <li> FlatVel_A </li> <li> FlatVel_B </li> <li> CurveVel_A </li> <li> CurveVel_B </li> <li> FlatFault_A </li> <li> FlatFault_B </li> <li> CurveFault_A </li> <li> CurveFault_B </li> <li> Style_A </li> <li> Style_B </li> </ul> |
+|`--seed` | (Optional, int, default=0) Random Seed |
+|`--partition` | (Optional, str, default=None) Separate evaluation data into multiple chunks . E.g. '0_4' means the first 25% of the dataset is used|
+|`--master-port`| (Optional, int, default=6020) Master port for process group initialized with torch.DDP module. Specify this if multiple script instances have to be launched within the same container |
+|`--ckpt` |(Optional, Path, default='latest.pt') Specify to select checkpoint weights within the output directory|
+
+### Sampling-related
+| Parameter      | Explanation |
+|----------------|-------------|
+|`--batch_size`|(Optional, int, default=32) Evaluation batch size |
+|`--nfe`|(Optional, int, default=None) Number of neural network calls to get a single sample batch. If not provided directly, the argument '--interval' from training options will be used.|
+|`--clip-denoise`|(Optional) If provided, clamp predicted image to [-1, 1] range at each sampling iteration|
+|`--use-fp16`|(Optional) If provided, uses network weights with reduced floating point precision for greater sampling speed at the cost of accuracy|
+
 ## Training
 
 To train a baseline model instance on a single node with minimal customization, execute the following command line in terminal attached to the running Docker container
@@ -86,7 +133,7 @@ python /home/seismic_inversion_via_I2SB/train.py --result-dir 'container_output_
 ```
 ### All launch options
 
-#### General 
+### General 
 | Parameter      | Explanation |
 |----------------|-------------|
 |`--result-dir`  | (Required, Path) Directory for output files. Specify the directory attached to container as persistent volume `container_output_volume` to save results at host |
@@ -98,7 +145,7 @@ python /home/seismic_inversion_via_I2SB/train.py --result-dir 'container_output_
 |`--ckpt` |(Optional, Path, default=None) Relative path to checkpoint weights within the output directory. If specified, training will resume from the checkpoint|
 |`--gpu`  |(Optional, int, default=None) Specify to run on a particular device|
 
-#### Model-related
+### Model-related
 | Parameter      | Explanation |
 |----------------|-------------|
 |`--model`|(Optional, str, default="unet_ch32") Model architecture. Possible values <ul>  <li> "unet_ch32" </li> <li> "unet_ch64" </li> </ul>|
@@ -114,7 +161,7 @@ python /home/seismic_inversion_via_I2SB/train.py --result-dir 'container_output_
 |`--ot-ode`|(Optional) If set, uses the ODE model instead of SDE one, _i.e.,_ the limit when the diffusion vanishes.  Hence, sampling becomes deterministic|
 |`--clip-denoise`| (Optional) If set, clip predicted image to [-1, 1] value range at each sampling iteration|
 
-#### Optimization-related
+### Optimization-related
 | Parameter      | Explanation |
 |----------------|-------------|
 |`--batch-size`| (Optional, type=int, default=256)|
@@ -125,37 +172,13 @@ python /home/seismic_inversion_via_I2SB/train.py --result-dir 'container_output_
 |`--clip_grad_norm`|(Optional, type=float, default=None) Clip gradient value to a set value. Stabilizes the training procedure, making it more resilient to large-scale gradients caused by outliers in data|
 |`--ema`|(Optional, type=float, default=0.99) Exponential moving average rate for network parameters through time. Instance of EMA parameters is saved independenty in parralel with the runtime checkpoint.|
 
-#### Metadata and Logging
+### Metadata and Logging
 
 | Parameter      | Explanation |
 |----------------|-------------|
 |`--log-writer`|(Optional, type=str, default=None) Specify the logger backend. At the moment only tensorbard logging is supported|
 |`--json-data-config`| (Optional, type=Path) Full path to JSON config for OpenFWI. Used for data normalization. Default path is `/home/seismic_inversion_via_I2SB/dataset/config/`|
 
-
-## Multi-Node Training
-
-For multi-node training, we recommand the MPI backend.
-```bash
-mpirun --allow-run-as-root -np $ARRAY_SIZE -npernode 1 bash -c \
-    'python train.py $TRAIN \
-    --num-proc-node $ARRAY_SIZE \
-    --node-rank $NODE_RANK \
-    --master-address $IP_ADDR '
-```
-where `TRAIN` wraps all the the [original (single-node) training options](https://github.com/NVlabs/I2SB#training), `ARRAY_SIZE` is the number of nodes, `NODE_RANK` is the index of each node among all the nodes that are running the job, and `IP_ADDR` is the IP address of the machine that will host the process with rank 0 during training; see [here](https://pytorch.org/tutorials/intermediate/dist_tuto.html#initialization-methods).
-
-
-## Citation
-
-```
-@article{liu2023i2sb,
-  title={I{$^2$}SB: Image-to-Image Schr{\"o}dinger Bridge},
-  author={Liu, Guan-Horng and Vahdat, Arash and Huang, De-An and Theodorou, Evangelos A and Nie, Weili and Anandkumar, Anima},
-  journal={arXiv preprint arXiv:2302.05872},
-  year={2023},
-}
-```
 
 ## License
 Copyright © 2023, NVIDIA Corporation. All rights reserved.
