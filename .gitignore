@@ -1,6 +1,9 @@
 # Generation results
 results/
 
+# Paper .tex files (this is temporary)
+paper/
+
 # Temporary assets
 assets/tmp/
 

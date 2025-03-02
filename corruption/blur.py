@@ -19,14 +19,25 @@ from .base import H_functions
 from scipy.ndimage import gaussian_filter
 
 
+# blur parameters for benchmark entries are from https://arxiv.org/pdf/2410.21776
+SUPPORTED_BLUR_TYPES = (
+    "uni", 
+    "gauss", 
+    "openfwi_baseline", 
+    "openfwi_benchmark_A", 
+    "openfwi_benchmark_B", 
+    "openfwi_benchmark_C"
+)
+
+
 class GaussMixtureBlur():
     
     def __init__(
         self, 
         gauss_kernel_floor=8, 
-        gauss_kernel_ceil=24, 
+        gauss_kernel_ceil=16, 
         noise_mixin_floor=0., 
-        noise_mixin_ceil=0.3
+        noise_mixin_ceil=0.2
     ):
         
         self.gauss_kernel_floor = gauss_kernel_floor
@@ -125,25 +136,33 @@ class Deblurring(H_functions):
         return vec.clone().reshape(vec.shape[0], -1)
 
 
-def _blur_factory(opt, kernel):
+def _blur_factory(opt, blur_type):
 
     xdim = (1, opt.image_size, opt.image_size)
 
-    if kernel == "uni":    
+    if blur_type == "uni":    
         uni = Deblurring(torch.Tensor([1/9] * 9).to(opt.device), 1, opt.image_size, opt.device)
         blur = lambda img: uni.H(img).reshape(img.shape[0], *xdim)
-    elif kernel == "gauss":
+    elif blur_type == "gauss":
         sigma = 10
         pdf = lambda x: torch.exp(torch.Tensor([-0.5 * (x/sigma)**2]))
         g_kernel = torch.Tensor([pdf(-2), pdf(-1), pdf(0), pdf(1), pdf(2)]).to(opt.device)
         gauss = Deblurring(g_kernel / g_kernel.sum(), 3, opt.image_size, opt.device)
         blur = lambda img: gauss.H(img).reshape(img.shape[0], *xdim)
-    elif kernel == "openfwi_custom":
+    elif blur_type == "openfwi_baseline":
         openfwi_blur = GaussMixtureBlur()
         blur = lambda img: openfwi_blur(img)
-    elif kernel == "openfwi_benchmark":
-        # blur parameters from https://arxiv.org/pdf/2410.21776
-        openfwi_blur = GaussMixtureBlur(gauss_kernel_floor=9, gauss_kernel_ceil=9, noise_mixin_floor=0., noise_mixin_ceil=0.)
+    elif blur_type == "openfwi_benchmark_A":
+        openfwi_blur = GaussMixtureBlur(
+            gauss_kernel_floor=9, gauss_kernel_ceil=9, noise_mixin_floor=0., noise_mixin_ceil=0.)
+        blur = lambda img: openfwi_blur(img)
+    elif blur_type == "openfwi_benchmark_B":
+        openfwi_blur = GaussMixtureBlur(
+            gauss_kernel_floor=19, gauss_kernel_ceil=19, noise_mixin_floor=0., noise_mixin_ceil=0.)
+        blur = lambda img: openfwi_blur(img)
+    elif blur_type == "openfwi_benchmark_C":
+        openfwi_blur = GaussMixtureBlur(
+            gauss_kernel_floor=49, gauss_kernel_ceil=49, noise_mixin_floor=0., noise_mixin_ceil=0.)
         blur = lambda img: openfwi_blur(img)
     else:
         raise NotImplementedError
@@ -151,11 +170,13 @@ def _blur_factory(opt, kernel):
     return blur
 
 
-def build_blur(opt, log, kernel):
+def build_blur(opt, log, blur_type):
 
-    log.info(f"[Corrupt] Bluring {kernel=}...")
+    assert blur_type in SUPPORTED_BLUR_TYPES
 
-    blurring_func = _blur_factory(opt, kernel)
+    log.info(f"[Corrupt] Bluring {blur_type=}...")
+
+    blurring_func = _blur_factory(opt, blur_type)
     
     def blur(img):   
         img = (img + 1) / 2 # [-1,1] -> [0,1]

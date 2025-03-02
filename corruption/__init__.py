@@ -5,6 +5,7 @@
 # for I2SB. To view a copy of this license, see the LICENSE file.
 # ---------------------------------------------------------------
 
+
 def build_corruption(opt, log, corrupt_type=None):
 
     if corrupt_type is None: corrupt_type = opt.corrupt
@@ -31,9 +32,8 @@ def build_corruption(opt, log, corrupt_type=None):
 
     elif 'blur' in corrupt_type:
         from .blur import build_blur
-        kernel = corrupt_type.split("-")[1]
-        assert kernel in ["uni", "gauss", "openfwi_custom", "openfwi_benchmark"]
-        method = build_blur(opt, log, kernel)
+        blur_type = corrupt_type.split("-")[1]
+        method = build_blur(opt, log, blur_type)
 
     elif 'mixture' in corrupt_type:
         method = None #
