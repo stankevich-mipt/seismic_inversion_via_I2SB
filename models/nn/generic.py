@@ -16,13 +16,10 @@ import torch as th
 import torch.nn as nn
 
 
-# PyTorch 1.7 has SiLU, but we support PyTorch 1.5.
-class SiLU(nn.Module):
-    def forward(self, x):
-        return x * th.sigmoid(x)
-
-
 class GroupNorm32(nn.GroupNorm):
+    """
+    GroupNorm with explicit conversion to th.float32
+    """
     def forward(self, x):
         return super().forward(x.float()).type(x.dtype)
 
@@ -98,14 +95,14 @@ def mean_flat(tensor):
     return tensor.mean(dim=list(range(1, len(tensor.shape))))
 
 
-def normalization(channels):
+def normalization(groups, channels):
     """
     Make a standard normalization layer.
 
     :param channels: number of input channels.
     :return: an nn.Module for normalization.
     """
-    return GroupNorm32(32, channels)
+    return nn.GroupNorm(groups, channels)
 
 
 def timestep_embedding(timesteps, dim, max_period=10000):

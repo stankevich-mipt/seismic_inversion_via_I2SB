@@ -6,4 +6,3 @@
 # ---------------------------------------------------------------
 
 from .runner import Runner
-from .ckpt_util import download_ckpt, download

@@ -20,13 +20,12 @@ import torch.distributed as dist
 
 from utils.pytorch_ssim import SSIM
 from torch.multiprocessing import Process
-from torch.utils.data import DataLoader, Subset
+from torch.utils.data import Subset
 from torch_ema import ExponentialMovingAverage
 import torchvision.utils as tu
 
 from logger import Logger
 import distributed_util as dist_util
-from i2sb import Runner
 from corruption import build_corruption
 from dataset import imagenet, openfwi
 
@@ -80,27 +79,17 @@ def build_partition(opt, full_dataset, log):
     return subset
 
 def build_val_dataset(opt, log, corrupt_type):
-    if "sr4x" in corrupt_type:
-        val_dataset = imagenet.build_lmdb_dataset(opt, log, train=False) # full 50k val
-    elif "inpaint" in corrupt_type:
-        mask = corrupt_type.split("-")[1]
-        val_dataset = imagenet.InpaintingVal10kSubset(opt, log, mask) # subset 10k val + mask
-    elif "blur" in corrupt_type:
-        kernel = corrupt_type.split("-")[1]
-        if kernel == "openfwi_custom":
-            val_dataset = openfwi.build_lmdb_dataset(opt, log, train=False)
-        else:
-            val_dataset = imagenet.build_lmdb_dataset_val10k(opt, log)
-    elif corrupt_type == "mixture":
-        from corruption.mixture import MixtureCorruptDatasetVal
-        val_dataset = imagenet.build_lmdb_dataset_val10k(opt, log)
-        val_dataset = MixtureCorruptDatasetVal(opt, val_dataset) # subset 10k val + mixture
+    
+    kernel = corrupt_type.split("-")[1]
+    if kernel == "openfwi_custom" or ("openfwi_benchmark" in kernel):
+        val_dataset = openfwi.build_lmdb_dataset(opt, log, train=opt.eval_on_train)
     else:
-        val_dataset = imagenet.build_lmdb_dataset_val10k(opt, log) # subset 10k val
-
+        raise NotImplementedError
+    
     # build partition
     if opt.partition is not None:
         val_dataset = build_partition(opt, val_dataset, log)
+    
     return val_dataset
 
 def get_recon_imgs_fn(opt, nfe):
@@ -116,44 +105,28 @@ def get_recon_imgs_fn(opt, nfe):
     return recon_imgs_fn
 
 
-def compute_batch(opt, corrupt_type, corrupt_method, out):
-
-    if "inpaint" in corrupt_type:
-        clean_img, y, mask = out
-        corrupt_img = clean_img * (1. - mask) + mask
-        x1          = clean_img * (1. - mask) + mask * torch.randn_like(clean_img)
-    elif corrupt_type == "mixture":
-        clean_img, corrupt_img, y = out
-        mask = None
-    else:
-        clean_img, y = out
-        mask = None
-        corrupt_img = corrupt_method(clean_img.to(opt.device))
-        x1 = corrupt_img.to(opt.device)
-
-    x0 = clean_img.detach().to(opt.device) 
-    cond = y.detach() if opt.cond_y else None
-
-    return x0, x1, cond
-
 @torch.no_grad()
 def main(opt):
     
     log = Logger(opt.global_rank, ".log")
 
     corrupt_type = opt.corrupt
-    nfe  = opt.nfe 
     # build corruption method
     corrupt_method = build_corruption(opt, log, corrupt_type=corrupt_type)
 
-    # build imagenet val dataset
+    # build validation dataset
     val_dataset = build_val_dataset(opt, log, corrupt_type)
-    
-    val_loader = DataLoader(val_dataset,
-        batch_size=opt.batch_size, shuffle=False, pin_memory=True, num_workers=1, drop_last=False,
-    )
 
     # build runner
+    
+    model_name = opt.model
+    if "ddpm" in model_name:
+        from models.ddpm import Runner
+    elif "i2sb" in model_name:
+        from models.i2sb import Runner
+    else:
+        raise NotImplementedError
+    
     runner = Runner(opt, log, save_opt=False)
 
     # handle use_fp16 for ema
@@ -162,39 +135,7 @@ def main(opt):
         runner.net.diffusion_model.convert_to_fp16()
         runner.ema = ExponentialMovingAverage(runner.net.parameters(), decay=0.99) # re-init ema with fp16 weight
 
-    opt.cond_y = True 
-    opt.ot_ode = True
-
-    avg_mse  = 0.
-    avg_mae  = 0.
-    avg_ssim = 0.
-
-    l1   = torch.nn.L1Loss(reduction='mean')
-    l2   = torch.nn.MSELoss(reduction='mean')
-    ssim = SSIM(window_size=11)
-
-    from tqdm.auto import tqdm as tqdm
-
-    pbar = tqdm(val_loader) 
-
-    for out in pbar:
-
-        pbar.set_description(f'MAE - {avg_mae}, MSE - {avg_mse}, SSIM - {avg_ssim}')
-
-        clean_img, x1, cond = compute_batch(opt, corrupt_type, corrupt_method, out)
-
-        xs, _ = runner.ddpm_sampling(
-            opt, x1, cond=cond, nfe=nfe, verbose=False
-        )
-        recon_img = xs[:, 0, ...].to(opt.device)
-
-        avg_mae  += l1(recon_img, clean_img) * xs.shape[0] / len(val_dataset)
-        avg_mse  += l2(recon_img, clean_img) * xs.shape[0] / len(val_dataset)
-        avg_ssim += ssim(recon_img/2. + 0.5, clean_img/2. + 0.5) * xs.shape[0] / len(val_dataset)
-
-    log.info(f'Average MAE on validation: {avg_mae}')
-    log.info(f'Average MSE on validation: {avg_mse}')
-    log.info(f'Average SSIM on validation: {avg_ssim}')
+    runner.evaluate(opt, log, val_dataset, corrupt_method)
 
     del runner
 
@@ -212,7 +153,10 @@ if __name__ == '__main__':
     # data
     parser.add_argument("--name",           type=str,  required=True,       help="experiment ID")
     parser.add_argument("--result-dir",     type=Path, required=True,       help="root directory for all of the output files produced with the training script")
+    parser.add_argument("--dataset-dir",    type=Path, default=None,        help="Use the dataset provided by the argument instead of the checkpointed one")
+    parser.add_argument("--dataset-name",   type=str,  default=None,        help="Use the dataset metadata provided by the argument instead of the checkpointed one")
     parser.add_argument("--partition",      type=str,  default=None,        help="e.g., '0_4' means the first 25% of the dataset")
+    parser.add_argument("--eval-on-train",  action="store_true",            help="evaluate metrics on training set")
 
     # sample
     parser.add_argument("--corrupt",        type=str,  default=None,        help="restoration task")
@@ -220,14 +164,13 @@ if __name__ == '__main__':
     parser.add_argument("--ckpt",           type=str,  default="latest.pt", help="the checkpoint name from which we wish to sample")
     parser.add_argument("--nfe",            type=int,  default=None,        help="sampling steps")
     parser.add_argument("--clip-denoise",   action="store_true",            help="clamp predicted image to [-1,1] at each")
-    parser.add_argument("--use-fp16",       action="store_true",            help="use fp16 network weight for faster sampling")
+    parser.add_argument("--use-fp16",       action="store_true",            help="use fp16 network weights for faster sampling")
     parser.add_argument(
         "--guidance_scale", 
         type=float, 
         default=None,
         help="average unconditional and conditional network predictions during inference"
     )
-
 
     arg = parser.parse_args()
 
@@ -236,20 +179,21 @@ if __name__ == '__main__':
         device=torch.device("cuda:0"),
         clip_denoise=False,
         use_fp16=False,
+        eval_on_train=False
     )
     opt.update(vars(arg))
 
-    
     # restore missing keys from option checkpoint 
     opt_pkl_path = opt.result_dir / opt.name / "checkpoints" / "options.pkl" 
     
     with open(opt_pkl_path, "rb") as f:
         ckpt_opt = pickle.load(f)
+
     arg_dict = vars(arg)
     
     for k, v in copy.copy(vars(ckpt_opt)).items():
         if arg_dict.get(k, 0):
-            del ckpt_opt.__dict__[k]  
+            del ckpt_opt.__dict__[k]
 
     opt.update(vars(ckpt_opt))
     # setup checkpoint path
@@ -278,6 +222,7 @@ if __name__ == '__main__':
         for p in processes:
             p.join()
     else:
+        
         torch.cuda.set_device(0)
         opt.global_rank = 0
         opt.local_rank = 0

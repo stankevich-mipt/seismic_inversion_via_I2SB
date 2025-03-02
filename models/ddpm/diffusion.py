@@ -5,14 +5,14 @@
 # for I2SB. To view a copy of this license, see the LICENSE file.
 # ---------------------------------------------------------------
 
+import torch
 import numpy as np
 from tqdm import tqdm
 from functools import partial
-import torch
-
-from .util import unsqueeze_xdim
-
 from ipdb import set_trace as debug
+
+from models.util import unsqueeze_xdim
+
 
 def compute_gaussian_product_coef(sigma1, sigma2):
     """ Given p1 = N(x_t|x_0, sigma_1**2) and p2 = N(x_t|x_1, sigma_2**2)
@@ -24,7 +24,9 @@ def compute_gaussian_product_coef(sigma1, sigma2):
     var = (sigma1**2 * sigma2**2) / denom
     return coef1, coef2, var
 
+
 class Diffusion():
+    
     def __init__(self, betas, device):
 
         self.device = device
@@ -38,31 +40,35 @@ class Diffusion():
         # tensorize everything
         to_torch = partial(torch.tensor, dtype=torch.float32)
         self.betas = to_torch(betas).to(device)
+        self.sqrt_alphas_cumprod = torch.sqrt(torch.cumprod(1 - self.betas, dim=0))
+
+        self.sqrt_one_minus_alphas_cumprod = torch.sqrt(1 - torch.cumprod(1 - self.betas, dim=0))
         self.std_fwd = to_torch(std_fwd).to(device)
         self.std_bwd = to_torch(std_bwd).to(device)
         self.std_sb  = to_torch(std_sb).to(device)
         self.mu_x0 = to_torch(mu_x0).to(device)
         self.mu_x1 = to_torch(mu_x1).to(device)
-
+         
     def get_std_fwd(self, step, xdim=None):
         std_fwd = self.std_fwd[step]
         return std_fwd if xdim is None else unsqueeze_xdim(std_fwd, xdim)
 
-    def q_sample(self, step, x0, x1, ot_ode=False):
-        """ Sample q(x_t | x_0, x_1), i.e. eq 11 """
+    def q_sample(self, step, x0):
+        
+        """
+        Diffuse the data for a given number of diffusion steps.
+        In other words, sample from q(x_t | x_0).
+        """
 
-        assert x0.shape == x1.shape
-        batch, *xdim = x0.shape
+        _, *xdim = x0.shape
+        
+        mu_x0 = unsqueeze_xdim(self.sqrt_alphas_cumprod[step], xdim)
+        std_noise = unsqueeze_xdim(self.sqrt_one_minus_alphas_cumprod[step], xdim)
+        
+        xt = mu_x0 * x0 + std_noise * torch.randn_like(x0) 
 
-        mu_x0  = unsqueeze_xdim(self.mu_x0[step],  xdim)
-        mu_x1  = unsqueeze_xdim(self.mu_x1[step],  xdim)
-        std_sb = unsqueeze_xdim(self.std_sb[step], xdim)
-
-        xt = mu_x0 * x0 + mu_x1 * x1
-        if not ot_ode:
-            xt = xt + std_sb * torch.randn_like(xt)
-        return xt.detach()
-
+        return xt
+    
     def p_posterior(self, nprev, n, x_n, x0, ot_ode=False):
         """ Sample p(x_{nprev} | x_n, x_0), i.e. eq 4"""
 
@@ -80,6 +86,7 @@ class Diffusion():
         return xt_prev
 
     def ddpm_sampling(self, steps, pred_x0_fn, x1, mask=None, ot_ode=False, log_steps=None, verbose=True):
+        
         xt = x1.detach().to(self.device)
 
         xs = []
@@ -92,7 +99,9 @@ class Diffusion():
 
         pair_steps = zip(steps[1:], steps[:-1])
         pair_steps = tqdm(pair_steps, desc='DDPM sampling', total=len(steps)-1) if verbose else pair_steps
+        
         for prev_step, step in pair_steps:
+            
             assert prev_step < step, f"{prev_step=}, {step=}"
 
             pred_x0 = pred_x0_fn(xt, step)

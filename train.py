@@ -23,7 +23,6 @@ from logger import Logger
 from distributed_util import init_processes
 from corruption import build_corruption
 from dataset import openfwi
-from i2sb import Runner
 
 
 def set_seed(seed):
@@ -104,8 +103,8 @@ def create_training_options():
 
     RESULT_DIR = opt.result_dir
     
-    opt.ckpt_path = RESULT_DIR / opt.name / "checkpoints"
-    opt.log_dir   = RESULT_DIR / opt.name / "logs"
+    opt.ckpt_path = RESULT_DIR / str(opt.name) / "checkpoints"
+    opt.log_dir   = RESULT_DIR / str(opt.name) / "logs"
 
     os.makedirs(opt.log_dir, exist_ok=True)
     os.makedirs(opt.ckpt_path, exist_ok=True)
@@ -141,6 +140,14 @@ def main(opt):
 
     # build corruption method
     corrupt_method = build_corruption(opt, log)
+
+    model_name = opt.model
+    if "ddpm" in model_name:
+        from models.ddpm import Runner
+    elif "i2sb" in model_name:
+        from models.i2sb import Runner
+    else:
+        raise NotImplementedError
 
     run = Runner(opt, log)
     run.train(opt, train_dataset, val_dataset, corrupt_method)
