@@ -13,7 +13,6 @@ import random
 
 import torch
 import numpy as np
-import torch.distributed as dist
 from pathlib import Path
 from easydict import EasyDict as edict
 
@@ -25,7 +24,6 @@ import torchvision.utils as tu
 
 from logger import Logger
 import distributed_util as dist_util
-from i2sb import Runner
 from corruption import build_corruption
 from dataset import imagenet, openfwi
 
@@ -57,14 +55,6 @@ def build_subset_per_gpu(opt, dataset, log):
     return subset
 
 
-def collect_all_subset(sample, log):
-    batch, *xdim = sample.shape
-    gathered_samples = dist_util.all_gather(sample, log)
-    gathered_samples = [sample.cpu() for sample in gathered_samples]
-    # [batch, n_gpu, *xdim] --> [batch*n_gpu, *xdim]
-    return torch.stack(gathered_samples, dim=1).reshape(-1, *xdim)
-
-
 def build_partition(opt, full_dataset, log):
     n_samples = len(full_dataset)
 
@@ -91,7 +81,7 @@ def build_val_dataset(opt, log, corrupt_type):
         val_dataset = imagenet.InpaintingVal10kSubset(opt, log, mask) # subset 10k val + mask
     elif "blur" in corrupt_type:
         kernel = corrupt_type.split("-")[1]
-        if kernel == "openfwi_custom":
+        if kernel == "openfwi_baseline" or ("openfwi_benchmark" in kernel):
             val_dataset = openfwi.build_lmdb_dataset(opt, log, train=False)
         else:
             val_dataset = imagenet.build_lmdb_dataset_val10k(opt, log)
@@ -110,10 +100,11 @@ def build_val_dataset(opt, log, corrupt_type):
 
 def get_sample_dir(opt):
 
-    sample_dir_prefix = opt.result_dir / opt.name / "samples" / str(opt.seed) 
+    sample_dir_prefix = opt.result_dir / opt.name / "samples" / opt.ckpt / opt.dataset_name / str(opt.seed) 
     sample_dir_postfix = f"nfe={opt.nfe}"+\
-                         f"_guidance-scale={str(opt.guidance_scale) if opt.guidance_scale else "0.0"}" +\
-                         f"_{"clip" if opt.clip_denoise else ""}"
+                         f"_corrupt={opt.corrupt}" +\
+                         f"_guidance-scale={str(opt.guidance_scale)}" if opt.guidance_scale else "" +\
+                         f"clip" if opt.clip_denoise else ""
     
     sample_dir = sample_dir_prefix / sample_dir_postfix
     os.makedirs(sample_dir, exist_ok=True)
@@ -157,7 +148,6 @@ def main(opt):
     log = Logger(opt.global_rank, ".log")
 
     corrupt_type = opt.corrupt
-    nfe  = opt.nfe 
     # build corruption method
     corrupt_method = build_corruption(opt, log, corrupt_type=corrupt_type)
 
@@ -166,10 +156,24 @@ def main(opt):
     
     # set shuffle=True to make the output seed-dependant
     val_loader = DataLoader(val_dataset,
-        batch_size=opt.batch_size, shuffle=True, pin_memory=True, num_workers=1, drop_last=False,
+        batch_size=opt.batch_size, shuffle=False, pin_memory=True, num_workers=1, drop_last=False,
     )
 
+    sample_dir = get_sample_dir(opt)
+    log.info(f"Recon images will be saved to {sample_dir}!")
+    opt.sample_dir = sample_dir
+    
     # build runner
+    model_name = opt.model
+    if "ddpm" in model_name:
+        from models.ddpm import Runner
+    elif "inversionnet" in model_name:
+        from models.inversionnet import Runner
+    elif "i2sb" in model_name:
+        from models.i2sb import Runner
+    else:
+        raise NotImplementedError
+    
     runner = Runner(opt, log, save_opt=False)
 
     # handle use_fp16 for ema
@@ -178,44 +182,7 @@ def main(opt):
         runner.net.diffusion_model.convert_to_fp16()
         runner.ema = ExponentialMovingAverage(runner.net.parameters(), decay=0.99) # re-init ema with fp16 weight
 
-    opt.cond_y = True 
-    opt.ot_ode = True
-
-    # create save folder
-    sample_dir = get_sample_dir(opt)
-    log.info(f"Recon images will be saved to {sample_dir}!")
-
-    img_collected = 0
-
-    for loader_itr, out in enumerate(val_loader):
-
-        if loader_itr == opt.total_batches: break
-
-        _, x1, cond = compute_batch(opt, corrupt_type, corrupt_method, out)
-        xs, _ = runner.ddpm_sampling(opt, x1, cond, nfe=nfe, verbose=False)
-        
-        recon_img = xs[:, 0, ...].to(opt.device)
-        cond = cond.to(opt.device)
-        corrupt_img = x1.detach()
-        assert recon_img.shape == corrupt_img.shape
-
-        if loader_itr == 0 and opt.global_rank == 0: # debug
-            
-            os.makedirs(".debug", exist_ok=True)
-            tu.save_image((corrupt_img+1)/2, ".debug/corrupt.png")
-            tu.save_image((recon_img+1)/2, ".debug/recon.png")
-            log.info("Saved debug images!")
-        
-        gathered_recon_img = collect_all_subset(recon_img, log=None)
-        gathered_cond = collect_all_subset(cond, log=None)
-
-        if opt.global_rank == 0:
-
-            save_path = sample_dir/ f"batch_{loader_itr}.pt"
-            torch.save({"model": gathered_recon_img, "data": gathered_cond}, save_path)
-       
-        img_collected += len(gathered_recon_img)
-        dist.barrier()
+    img_collected = runner.sample(opt, val_loader, corrupt_method)
 
     log.info(f"Sampling complete! Collected {img_collected} recon images!")
 
@@ -233,12 +200,15 @@ if __name__ == '__main__':
     # data
     parser.add_argument("--name",           type=str,  required=True,       help="experiment ID")
     parser.add_argument("--result-dir",     type=Path, required=True,       help="root directory for all of the output files produced with the training script")
+    parser.add_argument("--dataset-dir",    type=Path, default=None,        help="Use the dataset provided by the argument instead of the checkpointed one")
+    parser.add_argument("--dataset-name",   type=str,  default=None,        help="Use the dataset metadata provided by the argument instead of the checkpointed one")
     parser.add_argument("--partition",      type=str,  default=None,        help="e.g., '0_4' means the first 25% of the dataset")
 
     # sample
+    parser.add_argument("--ckpt",           type=str,  required=True,       help="the checkpoint name from which we wish to sample")
+    parser.add_argument("--corrupt",        type=str,  default=None,        help="restoration task")
     parser.add_argument("--batch-size",     type=int,  default=32)
     parser.add_argument("--total-batches",  type=int,  default=100,         help="upper limit for total batches sampled during inference")
-    parser.add_argument("--ckpt",           type=str,  default="latest.pt", help="the checkpoint name from which we wish to sample")
     parser.add_argument("--nfe",            type=int,  default=None,        help="sampling steps")
     parser.add_argument("--clip-denoise",   action="store_true",            help="clamp predicted image to [-1,1] at each")
     parser.add_argument("--use-fp16",       action="store_true",            help="use fp16 network weight for faster sampling")
@@ -276,7 +246,6 @@ if __name__ == '__main__':
 
     # setup checkpoint path
     opt.load = opt.result_dir / opt.name / "checkpoints" / opt.ckpt
-    
     # set seed
     set_seed(opt.seed)    
     

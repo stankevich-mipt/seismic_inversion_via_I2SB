@@ -81,7 +81,7 @@ def build_partition(opt, full_dataset, log):
 def build_val_dataset(opt, log, corrupt_type):
     
     kernel = corrupt_type.split("-")[1]
-    if kernel == "openfwi_custom" or ("openfwi_benchmark" in kernel):
+    if kernel == "openfwi_baseline" or ("openfwi_benchmark" in kernel):
         val_dataset = openfwi.build_lmdb_dataset(opt, log, train=opt.eval_on_train)
     else:
         raise NotImplementedError
@@ -118,10 +118,11 @@ def main(opt):
     val_dataset = build_val_dataset(opt, log, corrupt_type)
 
     # build runner
-    
     model_name = opt.model
     if "ddpm" in model_name:
         from models.ddpm import Runner
+    elif "inversionnet" in model_name:
+        from models.inversionnet import Runner
     elif "i2sb" in model_name:
         from models.i2sb import Runner
     else:
@@ -135,7 +136,7 @@ def main(opt):
         runner.net.diffusion_model.convert_to_fp16()
         runner.ema = ExponentialMovingAverage(runner.net.parameters(), decay=0.99) # re-init ema with fp16 weight
 
-    runner.evaluate(opt, log, val_dataset, corrupt_method)
+    runner.evaluate(opt, log, val_dataset, corrupt_method)  
 
     del runner
 
@@ -159,9 +160,9 @@ if __name__ == '__main__':
     parser.add_argument("--eval-on-train",  action="store_true",            help="evaluate metrics on training set")
 
     # sample
+    parser.add_argument("--ckpt",           type=str,  required=True,       help="the checkpoint name from which we wish to sample")
     parser.add_argument("--corrupt",        type=str,  default=None,        help="restoration task")
     parser.add_argument("--batch-size",     type=int,  default=32)
-    parser.add_argument("--ckpt",           type=str,  default="latest.pt", help="the checkpoint name from which we wish to sample")
     parser.add_argument("--nfe",            type=int,  default=None,        help="sampling steps")
     parser.add_argument("--clip-denoise",   action="store_true",            help="clamp predicted image to [-1,1] at each")
     parser.add_argument("--use-fp16",       action="store_true",            help="use fp16 network weights for faster sampling")
@@ -199,6 +200,8 @@ if __name__ == '__main__':
     # setup checkpoint path
     opt.load = opt.result_dir / opt.name / "checkpoints" / opt.ckpt
     
+    print(opt)
+
     # set seed
     set_seed(opt.seed)    
     

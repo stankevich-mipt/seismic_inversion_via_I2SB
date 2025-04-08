@@ -8,19 +8,11 @@
 import torch as th
 import torch.nn as nn
 
-from ..import util
-from config import get_config_by_name
+from models import util
+from .config import get_config_by_name
 from models.nn.generic import timestep_embedding
 from models.nn.unet import *
 from models.nn.fp16_util import convert_module_to_f16, convert_module_to_f32
-
-
-SUPPORTED_CONFIGS = (
-    "i2sb_ch16", 
-    "i2sb_ch64",
-    "i2sb_ch16_cond",
-    "i2sb_ch64_cond",
-)
 
 
 class UNetModel(nn.Module):
@@ -305,7 +297,6 @@ class UNet(nn.Module):
         
         super(UNet, self).__init__()
 
-        assert opt.model in SUPPORTED_CONFIGS, f"Config {opt.model} is not supported at the moment" 
         model_config = get_config_by_name(opt.model)
         model_config.image_size = opt.image_size
     
@@ -324,5 +315,5 @@ class UNet(nn.Module):
 
         if not (cond is None): 
             x = th.cat([x, cond], dim=1)
-        
+
         return self.diffusion_model(x, t)

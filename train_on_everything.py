@@ -22,7 +22,7 @@ from torch.multiprocessing import Process
 from logger import Logger
 from distributed_util import init_processes
 from corruption import build_corruption
-from dataset import openfwi
+from dataset import openfwi, MultiLMDBDataset
 
 
 def set_seed(seed):
@@ -58,7 +58,7 @@ def create_training_options():
     parser.add_argument("--interval",       type=int,   default=1000,        help="number of interval")
     parser.add_argument("--beta-max",       type=float, default=0.3,         help="max diffusion for the diffusion model")
     parser.add_argument("--drop_cond",      type=float, default=0.25,        help="probability to replace conditional input with zero-valued tensor")
-    parser.add_argument("--pred_x0",        action="store_true",             help="predict x0 instead of scaled noise")       
+    parser.add_argument("--pred_c0",        action="store_true",             help="predict bridge starting point instead of scaled noise")       
     parser.add_argument("--ot-ode",         action="store_true",             help="use OT-ODE model")
     parser.add_argument("--clip-denoise",   action="store_true",             help="clamp predicted image to [-1,1] at each")
 
@@ -75,7 +75,6 @@ def create_training_options():
 
     # --------------- path and logging ---------------
     parser.add_argument("--result-dir",     type=Path,  required=True,       help="root directory for all of the output files produced with the training script")
-    parser.add_argument("--dataset-name",   type=str,   required=True,       help="name of dataset from OpenFWI collection")
     parser.add_argument("--dataset-dir",    type=Path,  default="/dataset",  help="path to LMDB dataset")
     parser.add_argument("--loss-log-freq",  type=int,   default=10,          help="register loss value every 'loss-log-freq' batches")
     parser.add_argument("--save-freq",      type=int,   default=5000,        help="save model and optimizer checkpoints every 'save-freq' batches")
@@ -123,7 +122,6 @@ def create_training_options():
     assert opt.batch_size % opt.microbatch == 0, f"{opt.batch_size=} is not dividable by {opt.microbatch}!"
     return opt
 
-
 def main(opt):
     
     log = Logger(opt.global_rank, opt.log_dir)
@@ -138,8 +136,39 @@ def main(opt):
         set_seed(opt.seed + opt.global_rank)
 
     # build imagenet dataset
-    train_dataset = openfwi.build_lmdb_dataset(opt, log, train=True)
-    val_dataset   = openfwi.build_lmdb_dataset(opt, log, train=False)
+
+    all_datasets = (
+        'FlatVel_A', 
+        'FlatVel_B', 
+        'CurveVel_A', 
+        'CurveVel_B', 
+        'FlatFault_A', 
+        'FlatFault_B', 
+        'CurveFault_A',
+        'CurveFault_B', 
+        'Style_A', 
+        'Style_B',      
+    )
+
+    root_dataset_dir = opt.dataset_dir
+
+    lmdb_train_datasets = []
+    lmdb_val_datasets = []
+
+    for dataset in all_datasets:
+
+        opt.dataset_name = dataset
+        opt.dataset_dir  = root_dataset_dir / dataset
+
+        train_dataset = openfwi.build_lmdb_dataset(opt, log, train=True)
+        val_dataset   = openfwi.build_lmdb_dataset(opt, log, train=False)
+
+        lmdb_train_datasets.append(train_dataset)
+        lmdb_val_datasets.append(val_dataset)
+
+
+    train_dataset = MultiLMDBDataset(lmdb_train_datasets)
+    val_dataset   = MultiLMDBDataset(lmdb_val_datasets)
 
     # build corruption method
     corrupt_method = build_corruption(opt, log)
@@ -147,11 +176,13 @@ def main(opt):
     model_name = opt.model
     if "ddpm" in model_name:
         from models.ddpm import Runner
+    elif "inversionnet" in model_name:
+        from models.inversionnet import Runner
     elif "i2sb" in model_name:
         from models.i2sb import Runner
     else:
         raise NotImplementedError
-
+    
     run = Runner(opt, log)
     run.train(opt, train_dataset, val_dataset, corrupt_method)
     log.info("Finish!")

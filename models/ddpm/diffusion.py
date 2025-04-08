@@ -5,24 +5,12 @@
 # for I2SB. To view a copy of this license, see the LICENSE file.
 # ---------------------------------------------------------------
 
+import copy
 import torch
 import numpy as np
 from tqdm import tqdm
-from functools import partial
-from ipdb import set_trace as debug
 
 from models.util import unsqueeze_xdim
-
-
-def compute_gaussian_product_coef(sigma1, sigma2):
-    """ Given p1 = N(x_t|x_0, sigma_1**2) and p2 = N(x_t|x_1, sigma_2**2)
-        return p1 * p2 = N(x_t| coef1 * x0 + coef2 * x1, var) """
-
-    denom = sigma1**2 + sigma2**2
-    coef1 = sigma2**2 / denom
-    coef2 = sigma1**2 / denom
-    var = (sigma1**2 * sigma2**2) / denom
-    return coef1, coef2, var
 
 
 class Diffusion():
@@ -31,93 +19,99 @@ class Diffusion():
 
         self.device = device
 
-        # compute analytic std: eq 11
-        std_fwd = np.sqrt(np.cumsum(betas))
-        std_bwd = np.sqrt(np.flip(np.cumsum(np.flip(betas))))
-        mu_x0, mu_x1, var = compute_gaussian_product_coef(std_fwd, std_bwd)
-        std_sb = np.sqrt(var)
-
         # tensorize everything
-        to_torch = partial(torch.tensor, dtype=torch.float32)
-        self.betas = to_torch(betas).to(device)
-        self.sqrt_alphas_cumprod = torch.sqrt(torch.cumprod(1 - self.betas, dim=0))
-
-        self.sqrt_one_minus_alphas_cumprod = torch.sqrt(1 - torch.cumprod(1 - self.betas, dim=0))
-        self.std_fwd = to_torch(std_fwd).to(device)
-        self.std_bwd = to_torch(std_bwd).to(device)
-        self.std_sb  = to_torch(std_sb).to(device)
-        self.mu_x0 = to_torch(mu_x0).to(device)
-        self.mu_x1 = to_torch(mu_x1).to(device)
-         
-    def get_std_fwd(self, step, xdim=None):
-        std_fwd = self.std_fwd[step]
-        return std_fwd if xdim is None else unsqueeze_xdim(std_fwd, xdim)
-
-    def q_sample(self, step, x0):
+      
+        self.betas = torch.tensor(betas, dtype=torch.float32).to(device)
+        self._get_posteriors_from_betas()
         
-        """
-        Diffuse the data for a given number of diffusion steps.
-        In other words, sample from q(x_t | x_0).
-        """
+    def _get_posteriors_from_betas(self):
 
-        _, *xdim = x0.shape
+        self.alphas = 1 - self.betas
+        self.alphas_cumprod = torch.cumprod(self.alphas, dim=0)
+        self.alphas_cumprod_prev = torch.cat(
+            (torch.tensor([1.0]).to(self.device), self.alphas_cumprod[:-1]), 0)
+
+        self.sqrt_alphas_cumprod = torch.sqrt(self.alphas_cumprod)
+        self.sqrt_one_minus_alphas_cumprod = torch.sqrt(1 - self.alphas_cumprod)
+
+        self.posterior_variance = (
+            self.betas * (1.0 - self.alphas_cumprod_prev) / (1.0 - self.alphas_cumprod)
+        )
+
+        self.posterior_mean_c0 = (
+            self.betas * torch.sqrt(self.alphas_cumprod_prev) / (1.0 - self.alphas_cumprod)
+        )
+        self.posterior_mean_c1 = (
+            (1.0 - self.alphas_cumprod_prev) * torch.sqrt(self.alphas) / (1.0 - self.alphas_cumprod)
+        )
+
+    def _get_respaced_betas_from_alphas(self, timesteps_to_use):
+
+        last_alpha_cumprod = 1.0
+        new_betas = []
+
+        for i, alpha_cumprod in enumerate(self.alphas_cumprod):
+            if i in timesteps_to_use:
+                new_betas.append(1 - alpha_cumprod / last_alpha_cumprod)
+                last_alpha_cumprod = alpha_cumprod
+ 
+        self.betas = torch.tensor(new_betas, device=self.device)
+        self._get_posteriors_from_betas()
+                
+    def q_sample(self, step, c0):
+       
+        _, *xdim = c0.shape
         
-        mu_x0 = unsqueeze_xdim(self.sqrt_alphas_cumprod[step], xdim)
+        mu_c0 = unsqueeze_xdim(self.sqrt_alphas_cumprod[step], xdim)
         std_noise = unsqueeze_xdim(self.sqrt_one_minus_alphas_cumprod[step], xdim)
         
-        xt = mu_x0 * x0 + std_noise * torch.randn_like(x0) 
+        xt = mu_c0 * c0 + std_noise * torch.randn_like(c0) 
 
         return xt
     
-    def p_posterior(self, nprev, n, x_n, x0, ot_ode=False):
+    def p_posterior(self, step, c_n, c0, ot_ode=False):
         """ Sample p(x_{nprev} | x_n, x_0), i.e. eq 4"""
 
-        assert nprev < n
-        std_n     = self.std_fwd[n]
-        std_nprev = self.std_fwd[nprev]
-        std_delta = (std_n**2 - std_nprev**2).sqrt()
+        mu_c0 = self.posterior_mean_c0[step]
+        mu_cn = self.posterior_mean_c1[step]
+        var   = self.posterior_variance[step]
 
-        mu_x0, mu_xn, var = compute_gaussian_product_coef(std_nprev, std_delta)
+        ct_prev = mu_c0 * c0 + mu_cn * c_n
+        if not ot_ode and step > 0:
+            ct_prev = ct_prev + var.sqrt() * torch.randn_like(ct_prev)
 
-        xt_prev = mu_x0 * x0 + mu_xn * x_n
-        if not ot_ode and nprev > 0:
-            xt_prev = xt_prev + var.sqrt() * torch.randn_like(xt_prev)
+        return ct_prev
 
-        return xt_prev
-
-    def ddpm_sampling(self, steps, pred_x0_fn, x1, mask=None, ot_ode=False, log_steps=None, verbose=True):
+    def ddpm_sampling(self, steps, pred_c0_fn, c1, ot_ode=False, log_steps=None, verbose=True):
         
-        xt = x1.detach().to(self.device)
+        ct = torch.randn_like(c1).detach().to(self.device)
 
-        xs = []
-        pred_x0s = []
+        ct_traj = []
+        c0_traj = []
 
         log_steps = log_steps or steps
         assert steps[0] == log_steps[0] == 0
 
-        steps = steps[::-1]
+        rescaled_diffusion = copy.deepcopy(self)
+        rescaled_diffusion._get_respaced_betas_from_alphas(steps)
+
+        step_mapping = dict(enumerate(steps))
+        steps = list(step_mapping.keys())[::-1]
 
         pair_steps = zip(steps[1:], steps[:-1])
         pair_steps = tqdm(pair_steps, desc='DDPM sampling', total=len(steps)-1) if verbose else pair_steps
         
         for prev_step, step in pair_steps:
+
+            pred_c0 = pred_c0_fn(torch.cat([ct, c1], dim=1), step_mapping[step])
+            ct = rescaled_diffusion.p_posterior(prev_step, ct, pred_c0, ot_ode=ot_ode)
             
-            assert prev_step < step, f"{prev_step=}, {step=}"
-
-            pred_x0 = pred_x0_fn(xt, step)
-            xt = self.p_posterior(prev_step, step, xt, pred_x0, ot_ode=ot_ode)
-
-            if mask is not None:
-                xt_true = x1
-                if not ot_ode:
-                    _prev_step = torch.full((xt.shape[0],), prev_step, device=self.device, dtype=torch.long)
-                    std_sb = unsqueeze_xdim(self.std_sb[_prev_step], xdim=x1.shape[1:])
-                    xt_true = xt_true + std_sb * torch.randn_like(xt_true)
-                xt = (1. - mask) * xt_true + mask * xt
-
-            if prev_step in log_steps:
-                pred_x0s.append(pred_x0.detach().cpu())
-                xs.append(xt.detach().cpu())
+            if step_mapping[prev_step] in log_steps:
+                c0_traj.append(pred_c0.detach())
+                ct_traj.append(ct.detach())
 
         stack_bwd_traj = lambda z: torch.flip(torch.stack(z, dim=1), dims=(1,))
-        return stack_bwd_traj(xs), stack_bwd_traj(pred_x0s)
+
+        del rescaled_diffusion
+
+        return stack_bwd_traj(ct_traj), stack_bwd_traj(c0_traj)

@@ -9,11 +9,18 @@ import torch as th
 import torch.nn as nn
 
 from models import util
-from .config import get_config_by_name
-from models.nn.generic import timestep_embedding
 from models.nn.unet import *
+from models.nn.generic import timestep_embedding
 from models.nn.fp16_util import convert_module_to_f16, convert_module_to_f32
+from .config import get_config_by_name
 
+
+SUPPORTED_CONFIGS = [
+    "inversionnet_ch16", 
+    "inversionnet_ch64",
+    "inversionnet_ch16_cond", 
+    "inversionnet_ch64_cond",
+]
 
 class UNetModel(nn.Module):
     """
@@ -293,27 +300,19 @@ class UNetModel(nn.Module):
 
 class UNet(nn.Module):
 
-    def __init__(self, log, opt, noise_levels):
-        
+    def __init__(self, log, opt, *args, **kwargs):
+  
         super(UNet, self).__init__()
 
         model_config = get_config_by_name(opt.model)
         model_config.image_size = opt.image_size
     
-        self.diffusion_model = UNetModel(**model_config)
+        self.model = UNetModel(**model_config)
 
-        log.info(f"[Net] Created network with {opt.model} architecture! Size={util.count_parameters(self.diffusion_model)}!")
+        log.info(f"[Net] Created network with {opt.model} architecture! Size={util.count_parameters(self.model)}!")
 
-        self.diffusion_model.eval()
+        self.model.eval()
         
-        self.noise_levels = noise_levels
+    def forward(self, x):
 
-    def forward(self, x, steps, cond=None):
-
-        t = self.noise_levels[steps].detach()
-        assert t.dim()==1 and t.shape[0] == x.shape[0]
-
-        if not (cond is None): 
-            x = th.cat([x, cond], dim=1)
-
-        return self.diffusion_model(x, t)
+        return self.model(x, th.zeros((x.shape[0],)).to(x.device))

@@ -5,6 +5,7 @@
 # for I2SB. To view a copy of this license, see the LICENSE file.
 # ---------------------------------------------------------------
 
+import torch
 import numpy as np
 from .network import UNet
 from .diffusion import Diffusion
@@ -20,23 +21,47 @@ class Runner(BaseRunner):
 
         super().__init__(opt, log, save_opt, model=UNet, diffusion=Diffusion, betas=betas)
 
-    def compute_label(self, step, x0, xt, pred_x0=False):
+    def prepare_training_signature(self, opt, dataloader, corrupt_method):
+    
+        # sample boundary pair along with condition 
+        c0, c1, cond = self.get_data_triplet(opt, dataloader, corrupt_method)
+        # uniformly sample training timesteps
+        step  = torch.randint(0, opt.interval, (c0.shape[0],))
+        # corrupt the sample from target distribution with noise
+        ct    = self.diffusion.q_sample(step, c0, c1, ot_ode=opt.ot_ode)
+        # compute regression label
+        label = self.compute_label(step, c0, ct, pred_c0=opt.pred_c0)
 
-        if not pred_x0:
-            std_fwd = self.diffusion.get_std_fwd(step, xdim=x0.shape[1:])
-            label = (xt - x0) / std_fwd
+        if self.cond:
+            # mask some of conditional inputs with zeros - nesessary for classifier-free guidance
+            keep_cond = (torch.rand(cond.shape[0], 1, 1, 1) < (1. - opt.drop_cond)).type(cond.dtype).to(cond.device)
+            cond = cond * keep_cond
+            # assign higher weights for samples with non-zero condition
+            weights = 1. + keep_cond * 10.
         else:
-            label = x0
+            cond = None  
+            weights = torch.ones(c0.shape[0], 1, 1, 1).type(c0.dtype).to(c0.device)
+
+        weights = weights.repeat(1, *label.shape[1:])
+
+        return step, ct, cond, label, weights
+
+    def compute_label(self, step, c0, ct, pred_c0=False):
+
+        if not pred_c0:
+            std_fwd = self.diffusion.get_std_fwd(step, xdim=c0.shape[1:])
+            label = (ct - c0) / std_fwd
+        else:
+            label = c0
         return label.detach()
     
-    def compute_pred_x0(self, step, xt, net_out, pred_x0=False, clip_denoise=False):
+    def compute_pred_c0(self, step, ct, net_out, pred_c0=False, clip_denoise=False):
 
-        if not pred_x0:
-            std_fwd = self.diffusion.get_std_fwd(step, xdim=xt.shape[1:])
-            pred_x0 = xt - std_fwd * net_out
+        if not pred_c0:
+            std_fwd = self.diffusion.get_std_fwd(step, xdim=ct.shape[1:])
+            pred_c0 = ct - std_fwd * net_out
         else:
-            pred_x0 = net_out
-        if clip_denoise: pred_x0.clamp_(-1., 1.)
+            pred_c0 = net_out
+        if clip_denoise: pred_c0.clamp_(-1., 1.)
         
-        return pred_x0
-
+        return pred_c0
