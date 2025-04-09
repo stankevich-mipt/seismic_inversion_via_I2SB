@@ -17,22 +17,24 @@ Current reposiory contains official implementation of acousic FWI pipeline based
 ### Preface
 
 Consider the continuous medium governed with the 2D acoustic wave equation
-$$ \bigtriangleup \mathbf{p} - \dfrac{1}{\mathbf{c}^2} \dfrac{\partial^2\mathbf{p}}{\partial t^2} = \mathbf{s}$$
+```math
+\bigtriangleup \mathbf{p} - \dfrac{1}{\mathbf{c}^2} \dfrac{\partial^2\mathbf{p}}{\partial t^2} = \mathbf{s}
+```
 where $\bigtriangleup$ is a 2D Laplace operator, $\mathbf{p} (x, y, t)$ is the 
 pressure field, $\mathbf{s}(x, y, t)$ is the source function, an $\mathbf{c}(x, y)$ is the velocity field. 
 Regularized Full Waveform Inversion problem statement for such equation is formulated as an optimization task of the form
-$$ 
+```math
     \min\limits_{\mathbf{c}} \, J(\mathbf{d}_{\mathbf{model}},  \mathbf{d}_{\text{obs}}) + \lambda R(\mathbf{c})
     \quad \text{s.t.} \quad \mathbf{d}_{\text{model}} = F(\mathbf{c}) 
-$$
+```
 where $J$ measures the discrepancy between modelled $\mathbf{d}_{\text{model}}$ 
 and observed $\mathbf{d}_{\text{obs}}$ seismic data, $F$ is the forward modelling operator, 
 and $\lambda R(\mathbf{c})$ is the regularization term that limits the capacity of model space.
 To put it another way, the target of full waveform inversion is to estimate the value of ''pseudoinverse'' of 
 $F$ applied to the observed seismic data $\mathbf{d}_{\text{obs}}$
-$$
+```math
     \mathbf{c}^* = \hat{F}^{-1} (\mathbf{d}_{\text{obs}})
-$$
+```
 
 Supervised learning-based appoaches to acoustic waveform inversion seek $\hat{F}^{-1}_{\mathbf{\theta}}$ - 
 a parametric approximation of $\hat{F}^{-1}$
@@ -49,12 +51,12 @@ yields the reconstruced velocity model for seismogram $\mathbf{d}_i^{\text{test}
 ### Problem Statement and Proposed Solution
 
 Consider the acoustic FWI problem statement coupled with additional information, given by smooth velocity model $\mathbf{c}_{\text{smooth}}$ of the medium under investigation. 
-$$
+```math
     \begin{cases}
         \min\limits_{\mathbf{c}} \, J(\mathbf{d}_{\text{model}},  \mathbf{d}_{\text{obs}}) + \lambda R(\mathbf{c}) \\
         \text{s.t.} \quad \mathbf{d}_{\text{model}} = F(\mathbf{c}),\quad \mathbf{c}_1 = \mathbf{c}_{\text{smooth}}
     \end{cases}
-$$
+```
 $\mathbf{c}_{\text{smooth}}$ is believed to be reasonably close to ground truth velocity model $\mathbf{c}^*$,  
 yet lacking high-frequency details. Hence, in realistic inversion scenarios $\mathbf{c}_{\text{smooth}}$ 
 is commmonly employed as a starting point for nonlinear optimization. 
