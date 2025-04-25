@@ -159,11 +159,5 @@ def build_blur(opt, log, blur_type):
     log.info(f"[Corrupt] Bluring {blur_type=}...")
 
     blurring_func = _blur_factory(opt, blur_type)
-    
-    def blur(img):   
-        img = (img + 1) / 2 # [-1,1] -> [0,1]
-        img = blurring_func(img)
-        img = img * 2 - 1 # [0,1] -> [-1,1]
-        return img
 
-    return blur
+    return blurring_func
