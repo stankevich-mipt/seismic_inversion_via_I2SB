@@ -280,7 +280,7 @@ class BaseRunner(object):
         self.writer.close()
         
     @torch.no_grad()
-    def ddpm_sampling(
+    def ancestral_sampling(
         self, opt, smooth_model, seismic_data,
         nfe=None, log_count=None, verbose=True
     ):
@@ -298,9 +298,8 @@ class BaseRunner(object):
         log_steps = [steps[i] for i in util.space_indices(len(steps)-1, log_count)]
         assert log_steps[0] == 0
 
-        if verbose: self.log.info(f"[DDPM Sampling] steps={opt.interval}, {nfe=}, {log_steps=}!")
+        if verbose: self.log.info(f"[Ancestral sampling] steps={opt.interval}, {nfe=}, {log_steps=}!")
 
-        
         # seismic data is not required if model is unconditional 
         seismic_data = seismic_data if self.cond else None
         
@@ -314,7 +313,7 @@ class BaseRunner(object):
                 
                 guidance_scale = getattr(opt, 'guidance_scale', None)
                 
-                # If guidance scale is present, apply formula 6 from https://arxiv.org/abs/2207.12598
+                # If guidance scale is present, apply formula 6 from https://arxiv.org/abs/2207.1259 rewritten for unconditional model as a prior
                 if guidance_scale is None:
                     out = self.net(ct, step, cond=seismic_data)
                 else:
@@ -324,8 +323,8 @@ class BaseRunner(object):
 
                 return self.compute_pred_c0(step, ct, out, pred_c0=opt.pred_c0, clip_denoise=opt.clip_denoise)
 
-            traj_ct, traj_c0 = self.diffusion.ddpm_sampling(
-                steps, pred_c0_fn, smooth_model, log_steps=log_steps, verbose=verbose, ot_ode=opt.ot_ode
+            traj_ct, traj_c0 = self.diffusion.ancestral_sampling(
+                steps, pred_c0_fn, smooth_model, log_steps=log_steps, verbose=verbose, deterministic=opt.deterministic
             )
 
         b, *xdim = smooth_model.shape
@@ -341,7 +340,7 @@ class BaseRunner(object):
 
         ref_model, smooth_model, seismic_data = self.get_data_triplet(opt, val_loader, corrupt_method)
         
-        ct_traj, c0_traj = self.ddpm_sampling(opt, smooth_model, seismic_data, log_count=10)
+        ct_traj, c0_traj = self.ancestral_sampling(opt, smooth_model, seismic_data, log_count=10)
         log.info(f"Generated recon trajectories: size={ct_traj.shape}")
 
         # pick central shot for display
@@ -391,7 +390,7 @@ class BaseRunner(object):
 
             ref_model, seismic_data = batch[0].to(opt.device), batch[1].to(opt.device)
             smooth_model = corrupt_method(ref_model)
-            ct_traj, c0_traj = self.ddpm_sampling(opt, smooth_model, seismic_data, nfe=1, verbose=False)
+            ct_traj, c0_traj = self.ancestral_sampling(opt, smooth_model, seismic_data, nfe=1, verbose=False)
             recon_model = ct_traj[:, 0, ...].to(opt.device)
             
             recon_model = all_cat_cpu(opt, log, recon_model)
@@ -437,7 +436,7 @@ class BaseRunner(object):
 
             ref_model, seismic_data = batch[0].to(opt.device), batch[1].to(opt.device)
             smooth_model = corrupt_method(ref_model)
-            ct_traj, _ = self.ddpm_sampling(opt, smooth_model, seismic_data, nfe=opt.nfe, verbose=False)
+            ct_traj, _ = self.ancestral_sampling(opt, smooth_model, seismic_data, nfe=opt.nfe, verbose=False)
             recon_model = ct_traj[:, 0, ...].to(opt.device)
 
             avg_mae  += l1(recon_model, ref_model) * ct_traj.shape[0] / len(val_dataset)
@@ -454,13 +453,24 @@ class BaseRunner(object):
         img_collected = 0
 
         val_loader = iter(val_loader)
-
+        
         for loader_itr, _ in enumerate(iter(val_loader)):
 
             if loader_itr == opt.total_batches: break
 
             ref_model, smooth_model, seismic_data = self.get_data_triplet(opt, val_loader, corrupt_method)
-            ct_traj, c0_traj = self.ddpm_sampling(opt, smooth_model, seismic_data, nfe=opt.nfe, verbose=False)
+
+            if opt.test_var_reduction:
+                # resample batch of smooth models from the selected reference model
+                bsize = ref_model.shape[0]
+                id_ = torch.randint(bsize, (1,))
+                ref_model = ref_model[[id_]].repeat(bsize, 1, 1, 1)
+                seismic_data = seismic_data[[id_]].repeat(bsize, 1, 1, 1)
+                smooth_model = [corrupt_method(ref_model[[j]]) for j in range(bsize)]
+                smooth_model = torch.cat(smooth_model, dim=0)
+
+
+            ct_traj, c0_traj = self.ancestral_sampling(opt, smooth_model, seismic_data, nfe=opt.nfe, verbose=False)
             recon_model = ct_traj[:, 0, ...].contiguous()
             
             gathered_ref_model = collect_all_subset(ref_model, log=None)

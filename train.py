@@ -9,13 +9,11 @@ from __future__ import absolute_import, division, print_function, unicode_litera
 
 import os
 import sys
-import random
 import argparse
 
 import copy
 from pathlib import Path
 
-import numpy as np
 import torch
 from torch.multiprocessing import Process
 
@@ -23,16 +21,7 @@ from logger import Logger
 from distributed_util import init_processes
 from corruption import build_corruption
 from dataset import openfwi
-
-
-def set_seed(seed):
-    # https://github.com/pytorch/pytorch/issues/7068
-    random.seed(seed)
-    os.environ['PYTHONHASHSEED'] = str(seed)
-    np.random.seed(seed)
-    torch.manual_seed(seed)
-    torch.cuda.manual_seed(seed)
-    torch.cuda.manual_seed_all(seed) # if you are using multi-GPU.
+import utils.script as script_utils
 
 
 def create_training_options():
@@ -58,7 +47,7 @@ def create_training_options():
     parser.add_argument("--interval",       type=int,   default=1000,        help="number of interval")
     parser.add_argument("--beta-max",       type=float, default=0.3,         help="max diffusion for the diffusion model")
     parser.add_argument("--drop_cond",      type=float, default=0.25,        help="probability to replace conditional input with zero-valued tensor")
-    parser.add_argument("--pred_x0",        action="store_true",             help="predict x0 instead of scaled noise")       
+    parser.add_argument("--pred_c0",        action="store_true",             help="predict bridge starting point instead of scaled noise")       
     parser.add_argument("--ot-ode",         action="store_true",             help="use OT-ODE model")
     parser.add_argument("--clip-denoise",   action="store_true",             help="clamp predicted image to [-1,1] at each")
 
@@ -135,7 +124,7 @@ def main(opt):
 
     # set seed: make sure each gpu has differnet seed!
     if opt.seed is not None:
-        set_seed(opt.seed + opt.global_rank)
+        script_utils.set_seed(opt.seed + opt.global_rank)
 
     # build imagenet dataset
     train_dataset = openfwi.build_lmdb_dataset(opt, log, train=True)
@@ -147,6 +136,8 @@ def main(opt):
     model_name = opt.model
     if "ddpm" in model_name:
         from models.ddpm import Runner
+    elif "inversionnet" in model_name:
+        from models.inversionnet import Runner
     elif "i2sb" in model_name:
         from models.i2sb import Runner
     else:

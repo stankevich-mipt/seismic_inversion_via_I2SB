@@ -62,8 +62,9 @@ class Runner(BaseRunner):
 
             for _ in range(n_inner_loop):
 
-                label, cond = next(train_loader)            
-                input_, = self.get_model_input(opt, label, cond, corrupt_method)
+                batch = next(train_loader)  
+                label, cond = batch[0].to(opt.device), batch[1].to(opt.device)           
+                input_ = self.get_model_input(opt, label, cond, corrupt_method)
                 pred = net(input_)
 
                 assert pred.shape == label.shape
@@ -134,7 +135,7 @@ class Runner(BaseRunner):
         
         log_image("image/reference_model", ref_model)
         log_image("image/smooth_model", smooth_model)
-        log_image("image/seismic_data", seismic_data)
+        log_image("image/seismic_data", seismic_data[:, [2]])
         log_image("image/reconstucted_model", recon_model)
 
         log.info(f"Evaluating metrices on {opt.val_batches} validation batches")   
@@ -148,10 +149,9 @@ class Runner(BaseRunner):
         l2   = torch.nn.MSELoss(reduction='mean')
         ssim = SSIM(window_size=11)
 
-        pbar = tqdm(val_loader) 
         processed_batches = int(0)
 
-        for batch in pbar:
+        for batch in val_loader:
 
             if processed_batches == opt.val_batches: break
 
@@ -182,7 +182,9 @@ class Runner(BaseRunner):
 
 
     @torch.no_grad()
-    def evaluate(self, opt, log, val_dataset, corrupt_method):
+    def evaluate(self, opt, log, val_dataset, corrupt_method):\
+    
+        opt.ot_ode = True
 
         avg_mse  = 0.
         avg_mae  = 0.
@@ -208,9 +210,9 @@ class Runner(BaseRunner):
             recon_model = all_cat_cpu(opt, log, recon_model)
             ref_model = all_cat_cpu(opt, log, ref_model)
 
-            avg_mae  += l1(recon_model, ref_model) * ref_model.shape[0]
-            avg_mse  += l2(recon_model, ref_model) * ref_model.shape[0]
-            avg_ssim += ssim(recon_model/2 + 0.5, ref_model/2+ 0.5) * ref_model.shape[0]
+            avg_mae  += l1(recon_model, ref_model) * ref_model.shape[0] / len(val_dataset)
+            avg_mse  += l2(recon_model, ref_model) * ref_model.shape[0] / len(val_dataset)
+            avg_ssim += ssim(recon_model/2 + 0.5, ref_model/2+ 0.5) * ref_model.shape[0] / len(val_dataset)
 
         log.info(f'Average MAE on validation: {avg_mae}')
         log.info(f'Average MSE on validation: {avg_mse}')

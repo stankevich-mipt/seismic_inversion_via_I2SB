@@ -61,7 +61,7 @@ def inversionnet_large_cond():
 
 model_name_to_model_config = {
     'inversionnet_small': inversionnet_small,
-    'inversionnet_small_conf': inversionnet_small_cond,
+    'inversionnet_small_cond': inversionnet_small_cond,
     'inversionnet_large': inversionnet_large,
     'inversionnet_large_cond': inversionnet_large_cond
 }

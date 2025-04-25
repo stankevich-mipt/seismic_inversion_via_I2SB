@@ -50,7 +50,7 @@ class Diffusion():
         std_fwd = self.std_fwd[step]
         return std_fwd if xdim is None else unsqueeze_xdim(std_fwd, xdim)
 
-    def q_sample(self, step, c0, c1, ot_ode=False):
+    def q_sample(self, step, c0, c1, deterministic=False):
 
         assert c0.shape == c1.shape
         batch, *xdim = c0.shape
@@ -60,11 +60,11 @@ class Diffusion():
         std_sb = unsqueeze_xdim(self.std_sb[step], xdim)
 
         ct = mu_c0 * c0 + mu_c1 * c1
-        if not ot_ode:
+        if not deterministic:
             ct = ct + std_sb * torch.randn_like(ct)
         return ct.detach()
 
-    def p_posterior(self, nprev, n, c_n, c0, ot_ode=False):
+    def p_posterior(self, nprev, n, c_n, c0, deterministic=False):
 
         assert nprev < n
         std_n     = self.std_fwd[n]
@@ -74,12 +74,12 @@ class Diffusion():
         mu_c0, mu_cn, var = compute_gaussian_product_coef(std_nprev, std_delta)
 
         ct_prev = mu_c0 * c0 + mu_cn * c_n
-        if not ot_ode and nprev > 0:
+        if not deterministic and nprev > 0:
             ct_prev = ct_prev + var.sqrt() * torch.randn_like(ct_prev)
 
         return ct_prev
 
-    def ddpm_sampling(self, steps, pred_c0_fn, smooth_model, ot_ode=False, log_steps=None, verbose=True):
+    def ancestral_sampling(self, steps, pred_c0_fn, smooth_model, deterministic=False, log_steps=None, verbose=True):
         
         ct = smooth_model.clone().detach().to(self.device)
 
@@ -99,7 +99,7 @@ class Diffusion():
             assert prev_step < step, f"{prev_step=}, {step=}"
 
             pred_c0  = pred_c0_fn(ct, step)
-            ct = self.p_posterior(prev_step, step, ct, pred_c0, ot_ode=ot_ode)
+            ct = self.p_posterior(prev_step, step, ct, pred_c0, deterministic=deterministic)
 
             if prev_step in log_steps:
                 traj_c0.append(pred_c0.detach())

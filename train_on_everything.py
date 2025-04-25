@@ -9,13 +9,11 @@ from __future__ import absolute_import, division, print_function, unicode_litera
 
 import os
 import sys
-import random
 import argparse
 
 import copy
 from pathlib import Path
 
-import numpy as np
 import torch
 from torch.multiprocessing import Process
 
@@ -23,16 +21,7 @@ from logger import Logger
 from distributed_util import init_processes
 from corruption import build_corruption
 from dataset import openfwi, MultiLMDBDataset
-
-
-def set_seed(seed):
-    # https://github.com/pytorch/pytorch/issues/7068
-    random.seed(seed)
-    os.environ['PYTHONHASHSEED'] = str(seed)
-    np.random.seed(seed)
-    torch.manual_seed(seed)
-    torch.cuda.manual_seed(seed)
-    torch.cuda.manual_seed_all(seed) # if you are using multi-GPU.
+import utils.script as script_utils
 
 
 def create_training_options():
@@ -133,7 +122,7 @@ def main(opt):
 
     # set seed: make sure each gpu has differnet seed!
     if opt.seed is not None:
-        set_seed(opt.seed + opt.global_rank)
+        script_utils.set_seed(opt.seed + opt.global_rank)
 
     # build imagenet dataset
 
@@ -182,8 +171,14 @@ def main(opt):
         from models.i2sb import Runner
     else:
         raise NotImplementedError
+        
+    run = Runner(opt, log, save_opt=True)  
+    # Set sampling mode alias for disambiguation 
+    # Deterministic is related to inference, ot_ode is related to training
+    # For model trained with stochastic algorithm deterministic inference still makes sense
+    # Reverse is not true, hence ot_ode is on the left side of assignment
+    opt.deterministic = opt.ot_ode
     
-    run = Runner(opt, log)
     run.train(opt, train_dataset, val_dataset, corrupt_method)
     log.info("Finish!")
 

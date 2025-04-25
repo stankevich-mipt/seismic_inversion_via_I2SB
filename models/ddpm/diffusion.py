@@ -34,6 +34,9 @@ class Diffusion():
         self.sqrt_alphas_cumprod = torch.sqrt(self.alphas_cumprod)
         self.sqrt_one_minus_alphas_cumprod = torch.sqrt(1 - self.alphas_cumprod)
 
+        self.sqrt_recip_alphas_cumprod = torch.sqrt(1.0 / self.alphas_cumprod)
+        self.sqrt_recipm1_alphas_cumprod = torch.sqrt(1.0 / self.alphas_cumprod - 1)
+
         self.posterior_variance = (
             self.betas * (1.0 - self.alphas_cumprod_prev) / (1.0 - self.alphas_cumprod)
         )
@@ -57,7 +60,10 @@ class Diffusion():
  
         self.betas = torch.tensor(new_betas, device=self.device)
         self._get_posteriors_from_betas()
-                
+
+    def _predict_eps_from_xstart(self, step, c_n, c0):
+        return (self.sqrt_recip_alphas_cumprod[step]*c_n - c0) / self.sqrt_recipm1_alphas_cumprod[step]
+
     def q_sample(self, step, c0):
        
         _, *xdim = c0.shape
@@ -69,20 +75,26 @@ class Diffusion():
 
         return xt
     
-    def p_posterior(self, step, c_n, c0, ot_ode=False):
-        """ Sample p(x_{nprev} | x_n, x_0), i.e. eq 4"""
+    def p_posterior(self, step, c_n, c0, deterministic=False):
 
-        mu_c0 = self.posterior_mean_c0[step]
-        mu_cn = self.posterior_mean_c1[step]
-        var   = self.posterior_variance[step]
+        if not deterministic and step > 0:
+            
+            mu_c0 = self.posterior_mean_c0[step]
+            mu_cn = self.posterior_mean_c1[step]
+            var   = self.posterior_variance[step]
 
-        ct_prev = mu_c0 * c0 + mu_cn * c_n
-        if not ot_ode and step > 0:
+            ct_prev = mu_c0 * c0 + mu_cn * c_n
             ct_prev = ct_prev + var.sqrt() * torch.randn_like(ct_prev)
+
+        else: 
+            # Employ DDIM deterministic sampling            
+            alpha_bar_prev = self.alphas_cumprod_prev[step]
+            eps = self._predict_eps_from_xstart(step, c_n, c0)
+            ct_prev =  torch.sqrt(alpha_bar_prev) * c0 + torch.sqrt(1 - alpha_bar_prev) * eps
 
         return ct_prev
 
-    def ddpm_sampling(self, steps, pred_c0_fn, c1, ot_ode=False, log_steps=None, verbose=True):
+    def ancestral_sampling(self, steps, pred_c0_fn, c1, deterministic=False, log_steps=None, verbose=True):
         
         ct = torch.randn_like(c1).detach().to(self.device)
 
@@ -99,12 +111,12 @@ class Diffusion():
         steps = list(step_mapping.keys())[::-1]
 
         pair_steps = zip(steps[1:], steps[:-1])
-        pair_steps = tqdm(pair_steps, desc='DDPM sampling', total=len(steps)-1) if verbose else pair_steps
+        pair_steps = tqdm(pair_steps, desc='Ancestral sampling', total=len(steps)-1) if verbose else pair_steps
         
         for prev_step, step in pair_steps:
 
             pred_c0 = pred_c0_fn(torch.cat([ct, c1], dim=1), step_mapping[step])
-            ct = rescaled_diffusion.p_posterior(prev_step, ct, pred_c0, ot_ode=ot_ode)
+            ct = rescaled_diffusion.p_posterior(prev_step, ct, pred_c0, deterministic=deterministic)
             
             if step_mapping[prev_step] in log_steps:
                 c0_traj.append(pred_c0.detach())

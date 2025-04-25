@@ -60,7 +60,7 @@ def i2sb_large_cond():
 
 model_name_to_model_config = {
     'i2sb_small': i2sb_small,
-    'i2sb_small_conf': i2sb_small_cond,
+    'i2sb_small_cond': i2sb_small_cond,
     'i2sb_large': i2sb_large,
     'i2sb_large_cond': i2sb_large_cond
 }
