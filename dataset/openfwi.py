@@ -185,5 +185,5 @@ def build_lmdb_dataset(opt, log, train):
         ctx = json.load(f)[_DATASET_KV_MAP[opt.dataset_name]]
 
     dataset = _build_lmdb_dataset(opt, split_dir, ctx, log)
-    log.info(f"[Dataset] Built Imagenet dataset {split_dir=}, size={len(dataset)}!")
+    log.info(f"[Dataset] Built dataset {opt.dataset_name} from .lmdb database at {split_dir}, size={len(dataset)}!")
     return dataset

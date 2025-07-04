@@ -28,7 +28,7 @@ class Runner(BaseRunner):
         # uniformly sample training timesteps
         step  = torch.randint(0, opt.interval, (c0.shape[0],))
         # corrupt the sample from target distribution with noise
-        ct    = self.diffusion.q_sample(step, c0, c1, ot_ode=opt.ot_ode)
+        ct    = self.diffusion.q_sample(step, c0, c1, deterministic=opt.ot_ode)
         # compute regression label
         label = self.compute_label(step, c0, ct, pred_c0=opt.pred_c0)
 

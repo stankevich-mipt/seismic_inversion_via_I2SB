@@ -117,7 +117,7 @@ def main(opt):
     
     log = Logger(opt.global_rank, opt.log_dir)
     log.info("=======================================================")
-    log.info("         Image-to-Image Schrodinger Bridge")
+    log.info("              Seismic Inversion via I2SB               ")
     log.info("=======================================================")
     log.info("Command used:\n{}".format(" ".join(sys.argv)))
     log.info(f"Experiment ID: {opt.name}")
@@ -144,6 +144,11 @@ def main(opt):
         raise NotImplementedError
 
     run = Runner(opt, log)
+    # Set sampling mode alias for disambiguation 
+    # Deterministic is related to inference, ot_ode is related to training
+    # For model trained with stochastic algorithm deterministic inference still makes sense
+    # Reverse is not true, hence ot_ode is on the left side of assignment
+    opt.deterministic = opt.ot_ode
     run.train(opt, train_dataset, val_dataset, corrupt_method)
     log.info("Finish!")
 
