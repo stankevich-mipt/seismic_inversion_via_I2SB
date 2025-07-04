@@ -89,14 +89,14 @@ The only available option right now is the deployment based on Docker image with
 To build the image locally clone the repository and execute the following comand
 ```bash
 cd docker
-docker build -t stankevich-mipt/seismic_inversion_via_i2sb:latest -f Dockerfile .
+docker build --build-arg GIT_COMMIT=$(git rev-parse HEAD) -t stankevich-mipt/seismic_inversion_via_i2sb:latest -f Dockerfile .
 ```
 
 ## Running Docker containers 
 The image built yields all the necessary dependencies to run the code in the repository. To run experiments, one should create a container using the current image. 
 
 ```bash
-docker run -d --gpus=all -p 'host_port':'container_port' -v 'host_data_volume':'container_data_volume' -v 'host_output_volume':'container_output_volume' --name 'container_name' stankevich-mipt/seismic_inversion_via_i2sb:latest
+docker run -itd --gpus=all -p 'host_port':'container_port' -v 'host_data_volume':'container_data_volume' -v 'host_output_volume':'container_output_volume' --name 'container_name' stankevich-mipt/seismic_inversion_via_i2sb:latest
 ```
 
 | Parameter      | Explanation |
@@ -266,6 +266,21 @@ python /home/seismic_inversion_via_I2SB/record_openfwi_metrics.py --master-port 
 
 ```bash
 python /home/seismic_inversion_via_I2SB/sample.py --master-port 6090 --result-dir /home/seismic_inversion_via_I2SB/artifacts/ --name i2sb_large_cond --dataset-dir /opt/data/openfwi/converted/CurveFault_B --dataset-name CurveFault_B --ckpt ckpt0.pt --guidance-scale 0.2 --nfe 50 --total_batches 16
+```
+
+## Citation 
+If you use this repository or the accompanying code in your work, please cite
+
+```text
+@misc{stankevich2025acousticwaveforminversionimagetoimage,
+      title={Acoustic Waveform Inversion with Image-to-Image Schr\"odinger Bridges}, 
+      author={A. S. Stankevich and I. B. Petrov},
+      year={2025},
+      eprint={2506.15346},
+      archivePrefix={arXiv},
+      primaryClass={cs.LG},
+      url={https://arxiv.org/abs/2506.15346}, 
+}
 ```
 
 ## References 

@@ -27,6 +27,9 @@ RUN pip install torch torchvision torchaudio --index-url https://download.pytorc
 
 # install git and clone i2sb repository via https
 
+ARG GIT_COMMIT
+ENV GIT_COMMIT=$GIT_COMMIT
+
 RUN apt install -y git && \ 
     git clone https://github.com/stankevich-mipt/seismic_inversion_via_I2SB.git 
 
