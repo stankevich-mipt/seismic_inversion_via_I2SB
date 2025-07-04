@@ -51,20 +51,15 @@ def main(opt):
     val_dataset = openfwi.build_lmdb_dataset(opt, log, train=False)
     if opt.partition is not None:
         val_dataset = script_utils.build_partition(opt, val_dataset, log)        
-    
-    # set shuffle=True to make the output seed-dependant
-    val_loader = DataLoader(val_dataset,
-        batch_size=opt.batch_size, shuffle=False, pin_memory=True, num_workers=1, drop_last=False,
-    )
 
     sample_dir = get_sample_dir(opt)
     log.info(f"Recon images will be saved to {sample_dir}!")
     opt.sample_dir = sample_dir
     
     runner = script_utils.get_runner(opt, log, save_opt=False)
-    img_collected = runner.sample(opt, val_loader, corrupt_method)
+    runner.evaluate(opt, log, val_dataset, corrupt_method)
 
-    log.info(f"Sampling complete! Collected {img_collected} recon images!")
+    log.info(f"Evaluation complete!")
 
 
 if __name__ == '__main__':
@@ -108,7 +103,7 @@ if __name__ == '__main__':
         )
     )
     parser.add_argument(
-        "--guidance_scale", 
+        "--guidance-scale", 
         type=float, 
         default=None,
         help="average unconditional and conditional network predictions during inference"

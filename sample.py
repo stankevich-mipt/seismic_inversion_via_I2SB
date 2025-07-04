@@ -108,7 +108,7 @@ if __name__ == '__main__':
         )
     )
     parser.add_argument(
-        "--guidance_scale", 
+        "--guidance-scale", 
         type=float, 
         default=None,
         help="average unconditional and conditional network predictions during inference"
