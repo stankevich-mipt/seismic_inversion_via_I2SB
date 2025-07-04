@@ -27,8 +27,8 @@ Regularized Full Waveform Inversion problem statement for such equation is formu
     \min\limits_{\mathbf{c}} \, J(\mathbf{d}_{\mathbf{model}},  \mathbf{d}_{\text{obs}}) + \lambda R(\mathbf{c})
     \quad \text{s.t.} \quad \mathbf{d}_{\text{model}} = F(\mathbf{c}) 
 ```
-where $J$ measures the discrepancy between modelled $\mathbf{d}_{\text{model}}$ 
-and observed $\mathbf{d}_{\text{obs}}$ seismic data, $F$ is the forward modelling operator, 
+where $J$ measures the discrepancy between modelled $`\mathbf{d}_{\text{model}}`$ 
+and observed $`\mathbf{d}_{\text{obs}}`$ seismic data, $F$ is the forward modelling operator, 
 and $\lambda R(\mathbf{c})$ is the regularization term that limits the capacity of model space.
 To put it another way, the target of full waveform inversion is to estimate the value of ''pseudoinverse'' of 
 $F$ applied to the observed seismic data $\mathbf{d}_{\text{obs}}$
@@ -40,9 +40,9 @@ Supervised learning-based appoaches to acoustic waveform inversion seek $\hat{F}
 a parametric approximation of $\hat{F}^{-1}$
 The tuning of parameters $\mathbf{\theta}$ is carried 
 out with gradient optimization using training dataset, which contains coupled instances of velocity models 
-$\mathbf{c}_i^{\text{train}}$ and corresponding observed data $\mathbf{d}_i^{\text{train}}$.
-Once the parameter fitting is done, $\hat{F}^{-1}_{\mathbf{\theta}^*} \left( \mathbf{d}_i^{\text{test}} \right)$ 
-yields the reconstruced velocity model for seismogram $\mathbf{d}_i^{\text{test}}$ (illustration courtesy of [[1]](#1))
+$\mathbf{c}_i^{\text{train}}$ and corresponding observed data $`\mathbf{d}_i^{\text{train}}`$.
+Once the parameter fitting is done, $`\hat{F}^{-1}_{\mathbf{\theta}^*} \left( \mathbf{d}_i^{\text{test}} \right)`$ 
+yields the reconstruced velocity model for seismogram $`\mathbf{d}_i^{\text{test}}`$ (illustration courtesy of [[1]](#1))
 
 <p align="center">
     <img src="assets\data-driven-FWI.png" alt="Data Driven Acoustic FWI" width="500"/>
@@ -57,18 +57,16 @@ Consider the acoustic FWI problem statement coupled with additional information,
         \text{s.t.} \quad \mathbf{d}_{\text{model}} = F(\mathbf{c}),\quad \mathbf{c}_1 = \mathbf{c}_{\text{smooth}}
     \end{cases}
 ```
-$\mathbf{c}_{\text{smooth}}$ is believed to be reasonably close to ground truth velocity model $\mathbf{c}^*$,  
-yet lacking high-frequency details. Hence, in realistic inversion scenarios $\mathbf{c}_{\text{smooth}}$ 
-is commmonly employed as a starting point for nonlinear optimization. 
+$`\mathbf{c}_{\text{smooth}}`$ is believed to be reasonably close to ground truth velocity model $\mathbf{c}^*$,  yet lacking high-frequency details. Hence, in realistic inversion scenarios $\mathbf{c}_{\text{smooth}}$ is commmonly employed as a starting point for nonlinear optimization. 
 
 We propose a novel way to utilize such piece of information in context of recently 
 proposed diffusion-based deep learning approach to acoustic waveform inversion
 [[2]](#2), [[3]](#3), [[4]](#4).
 Specifically, we calculate 
-$\mathbf{c}^* = \hat{F}^{-1}_{\mathbf{\theta}^*} (\mathbf{d}^{\text{obs}}, \mathbf{c}_{\mathbf{smooth}})$ 
-by running inference process of conditional I$^2$SB [[5]](#5) model 
-under hypothesis of $\mathbf{c}_{\text{smooth}} \sim p_\text{prior} \left(\cdot | \mathbf{c}^* \right)$ (algorithm 2).
-To make our model more flexible, we augment the training procedure of I$^2$SB with classifier-free diffusion guidance [[6]](#6) (algorithm 1)
+$`\mathbf{c}^* = \hat{F}^{-1}_{\mathbf{\theta}^*} (\mathbf{d}^{\text{obs}}, \mathbf{c}_{\mathbf{smooth}})`$ 
+by running inference process of conditional I$`^2`$SB [[5]](#5) model 
+under hypothesis of $`\mathbf{c}_{\text{smooth}} \sim p_\text{prior} \left(\cdot | \mathbf{c}^* \right)`$ (algorithm 2).
+To make our model more flexible, we augment the training procedure of I$`^2`$SB with classifier-free diffusion guidance [[6]](#6) (algorithm 1)
 <p align="center">
     <img src="assets\i2sb_training_algo.png" alt="Conditional I2SB Training" width="500"/>
 </p>
@@ -191,6 +189,10 @@ After the execution is finished, `$RESULT_DIR/$EXPERIMENT_NAME/samples` will con
 |`--nfe`|(Optional, int, default=None) Number of neural network calls to get a single sample batch. If not provided directly, the argument '--interval' from training options will be used.|
 |`--clip-denoise`|(Optional) If provided, clamp predicted image to [-1, 1] range at each sampling iteration|
 |`--use-fp16`|(Optional) If provided, uses network weights with reduced floating point precision for greater sampling speed at the cost of accuracy|
+|`--stochastic`|(Optional) Use stochastic sampling during inference. Mutually exclusive with `--deterministic`|
+|`--deterministic`|(Optional) Use deterministic sampling during inference. Mutually exclusive with `--stochastic`|
+|`--test-var-reduction`|(Optional) If set, register inference results for batches of smooth models obtained through application of degradation operator to the same reference model|
+|`--guidance-scale`|(Optional, default=None) Employ linear combination of  unconditional and conditional starting point predictions with weights `guidance-scale` and 1 - `guidance-scale` respectively| 
 
 ## Training
 
@@ -206,7 +208,7 @@ python /home/seismic_inversion_via_I2SB/train.py --result-dir 'container_output_
 |`--result-dir`  | (Required, Path) Directory for output files. Specify the directory attached to container as persistent volume `container_output_volume` to save results at host |
 |`--dataset-dir` | (Required, Path) Directory containing OpenFWI dataset in the format listed above. Specify the directory attached to container as persistent volume `container_output_volume` to get the data from host and save LMDB cache at the same volume |
 |`--dataset-name` | (Required, Path) OpenFWI dataset name required to fetch metadata for preprocessing. Possible values  <ul> <li> FlatVel_A </li> <li> FlatVel_B </li> <li> CurveVel_A </li> <li> CurveVel_B </li> <li> FlatFault_A </li> <li> FlatFault_B </li> <li> CurveFault_A </li> <li> CurveFault_B </li> <li> Style_A </li> <li> Style_B </li> </ul> |
-|`--name` | (Optional, srt, default=str(seed)) Experiment ID|
+|`--name` | (Optional, str, default=str(seed)) Experiment ID|
 |`--seed` | (Optional, int, default=0) Random Seed|
 |`--master-port`| (Optional, int, default=6020) Master port for process group initialized with torch.DDP module. Specify this if multiple script instances have to be launched within the same container |
 |`--ckpt` |(Optional, Path, default=None) Relative path to checkpoint weights within the output directory. If specified, training will resume from the checkpoint|
@@ -215,16 +217,16 @@ python /home/seismic_inversion_via_I2SB/train.py --result-dir 'container_output_
 ### Model-related
 | Parameter      | Explanation |
 |----------------|-------------|
-|`--model`|(Optional, str, default="unet_ch32") Model architecture. Possible values <ul>  <li> "unet_ch32" </li> <li> "unet_ch64" </li> </ul>|
-|`--image-size`|(Optional, int, default=256) Height and width of model inputs and outputs. Data samples are resized once at the stage of lmdb database creation|
-|`--corrupt`|(Optional, str, default="blur-openfwi_custom") Restoration task. Possible values <ul>  <li> "blur-openfwi_custom" - gaussian smoothing with variable kernel size combined with the addition of zero-centered normal noise </li> <li> "blur-openfwi_benchmark" - gaussian smoothing with kernel_size=9 (ref. https://arxiv.org/pdf/2410.21776)  </li> </ul>|
+|`--model`|(Optional, str, default="i2sb_small_cond") Specify to select one of the model architectures implemented in scope of the paper. Possible values are <ul>  <li> "inversionnet_small" </li> <li> "inversionnet_small_cond" </li> <li> "inversionnet_large" </li> <li> "inversionnet_large_cond" </li> <li> "ddpm_small" </li> <li> "ddpm_small_cond" </li> <li> "ddpm_large" </li> <li> "ddpm_large_cond" </li> <li> "i2sb_small" </li> <li> "i2sb_small_cond" </li> <li> "i2sb_large" </li> <li> "i2sb_large_cond" </li> </ul>|
+|`--image-size`|(Optional, int, default=64) Height and width of model inputs and outputs. Data samples are resized once at the stage of lmdb database creation|
+|`--corrupt`|(Optional, str, default="blur-ci2sb_baseline") Distortion operator that determines the endpoint distributions. Possible values <ul>  <li> "blur-ci2sb_baseline" - gaussian smoothing with variable kernel size combined with the addition of zero-centered normal noise </li> <li> "uni" - uniform filter from the original I$`^2`$SB paper  </li> <li> "gauss" - gaussian filter from the original I$`^2`$SB paper  </li> </ul>|
 |`--val-batches`|(Optional, int, default=100) Upper bound for the amount of batches to run validation on|
 |`--t0`|(Optional, float, default=0.0001) Initial time in network parameterization|
-|`--T` |(Optional, float, default=1.)   Final time in network parameterization  |
+|`--T` |(Optional, float, default=1.)   Final time in network parameterization|
 |`--interval`|(Optional, type=int, default=1000) Maximum amount of discrete timesteps to divide the time interval into|
 |`--beta-max`|(Optional, type=float, default=0.3) Square root of the standard noise deviation at the end of time interval during DDPM sampling|
 |`--drop_cond`|(Optional, type=float, default=0.25) Probability to replace conditional input with zero-valued tensor. Inspired by https://arxiv.org/pdf/2207.12598|
-|`--pred-x0`|(Optional) If set, replaces the original objective with the one described in https://arxiv.org/pdf/2206.00364|
+|`--pred-c0`|(Optional) If set, predict the initial point of noising process directly|
 |`--ot-ode`|(Optional) If set, uses the ODE model instead of SDE one, _i.e.,_ the limit when the diffusion vanishes.  Hence, sampling becomes deterministic|
 |`--clip-denoise`| (Optional) If set, clip predicted image to [-1, 1] value range at each sampling iteration|
 
@@ -247,8 +249,24 @@ python /home/seismic_inversion_via_I2SB/train.py --result-dir 'container_output_
 |`--save-freq`|(Optional, type=int, default=5000) Frequency in batches with which the model state is saved to the storage during script execution |
 |`--val-freq`| (Optional, type=int, default=5000) Frequency in batches with which the model performance is evaluated during script execution |            
 |`--log-writer`|(Optional, type=str, default=None) Specify the logger backend. At the moment only tensorbard logging is supported|
-|`--json-data-config`| (Optional, type=Path) Full path to JSON config for OpenFWI. Used for data normalization. Default path is `/home/seismic_inversion_via_I2SB/dataset/config/`|
+|`--json-data-config`| (Optional, type=Path) Full path to JSON config for OpenFWI. Used for data normalization. Default path is `/home/seismic_inversion_via_I2SB/dataset/config/openfwi_dataset_config.json`|
 
+## Illustrative sets of options for training and evaluation 
+### Training 
+```bash
+python /home/seismic_inversion_via_I2SB/train_on_everything.py --model i2sb_large_cond --result-dir /home/seismic_inversion_via_I2SB/artifacts/ --dataset-dir /opt/data/openfwi/converted --name i2sb_large_cond --seed 42 --corrupt blur-ci2sb_baseline  --clip-grad-norm 1.0 --image-size 64 --pred_c0 --drop_cond 0.5 --num-itr 300000 --batch-size 256 --microbatch 64 --log-writer tensorboard
+```
+### Evaluation 
+
+```bash
+python /home/seismic_inversion_via_I2SB/record_openfwi_metrics.py --master-port 6090 --result-dir /home/seismic_inversion_via_I2SB/artifacts/ --name i2sb_large_cond --dataset-dir /opt/data/openfwi/converted/CurveFault_B --dataset-name CurveFault_B --ckpt ckpt0.pt --guidance-scale 0.2 --nfe 50 --total_batches 16
+```
+
+### Sampling  
+
+```bash
+python /home/seismic_inversion_via_I2SB/sample.py --master-port 6090 --result-dir /home/seismic_inversion_via_I2SB/artifacts/ --name i2sb_large_cond --dataset-dir /opt/data/openfwi/converted/CurveFault_B --dataset-name CurveFault_B --ckpt ckpt0.pt --guidance-scale 0.2 --nfe 50 --total_batches 16
+```
 
 ## References 
 <a id="1">[1]</a> Deng, C., Feng, S., Wang, H., Zhang, X., Jin, P., Feng, Y., ... & Lin, Y. (2022). OpenFWI: Large-scale multi-structural benchmark datasets for full waveform inversion. Advances in Neural Information Processing Systems, 35, 6007-6020.
